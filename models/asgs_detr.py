@@ -175,7 +175,9 @@ class ASGS_DETR(nn.Module):
             'pred_logits': outputs_class[-1],
             'pred_boxes': outputs_coord[-1],
             'object_embedding': hs[-1],  # Last layer embeddings needed for ASGS
-            'cls_means': self.cls_means  # For ASGS Prototype access
+            'cls_means': self.cls_means,  # For ASGS Prototype access
+            # [추가됨] Loss 계산을 위해 마지막 분류기 레이어를 전달해야 합니다.
+            'final_classifier': self.class_embed[-1]
         }
 
         if self.aux_loss:
@@ -216,7 +218,16 @@ class ASGSCriterion(nn.Module):
         self.M_knn = 5  # Number of KNN unmatched samples
         self.delta_sim = 0.6  # Similarity threshold for ASS
         self.tau_cec = 0.1  # Temperature for CEC
-        self.unknown_idx = num_classes  # Index for Unknown class (assumed to be at the end of known classes)
+        # [수정 전]
+        # self.unknown_idx = num_classes  <-- (4가 들어감: 배경 인덱스가 됨)
+
+        # [수정 후]
+        # 1. Unknown 인덱스를 3번으로 당김 (0, 1, 2, 3)
+        self.unknown_idx = num_classes - 1
+
+        # 2. Known Class 개수 정의 (0, 1, 2 세 개만 Known)
+        self.num_known_classes = num_classes - 1
+
 
     def forward(self, samples, outputs, targets, epoch=0):
         outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs' and k != 'enc_outputs'}
@@ -256,7 +267,7 @@ class ASGSCriterion(nn.Module):
             # SUL Loss (Warm-up 적용: 설정된 Epoch 이후부터 계산)
             if 'loss_sul' in self.weight_dict:
                 if epoch >= warm_up_epoch:
-                    print("warm_up epoch finish. let's begin sul loss")
+                    #print("warm_up epoch finish. let's begin sul loss")
                     losses.update(self.get_sul_loss(outputs, targets, indices))
                 else:
                     # Warm-up 기간에는 Loss를 0으로 설정 (로그 기록용)
@@ -400,6 +411,7 @@ class ASGSCriterion(nn.Module):
         classifier = outputs.get('final_classifier')
         if classifier is None:
             # Fail-safe or raise error
+            print("classifier is None")
             return {'loss_sul': torch.tensor(0.0, device=obj_embs.device)}
 
         pred_logits = classifier(subgraph_features)  # [N_subgraphs, num_classes + 1]
@@ -432,7 +444,11 @@ class ASGSCriterion(nn.Module):
         count = 0
 
         # Iterate over each known class k
-        for k in range(self.num_classes):
+        # [수정 전]
+        # for k in range(self.num_classes): <-- (Unknown인 3번까지 돎)
+
+        # [수정 후] Known Class 개수(3개)만큼만 반복 (0, 1, 2)
+        for k in range(self.num_known_classes):
             # Query: Class Prototype mu_s^k
             query = prototypes[k]  # [D]
 
