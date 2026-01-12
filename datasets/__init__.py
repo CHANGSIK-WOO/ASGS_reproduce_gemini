@@ -27,7 +27,12 @@ def get_coco_api_from_dataset(dataset):
         return dataset
 
 
-def build_dataset(image_set, cfg,multi_task_eval_id=4):
+def build_dataset(image_set, cfg,multi_task_eval_id=None):
+    if multi_task_eval_id is None:
+        if hasattr(cfg.DATASET, 'AOOD_TASK'):
+            multi_task_eval_id = cfg.DATASET.AOOD_TASK
+        else:
+            multi_task_eval_id = 3
     if cfg.DATASET.DATASET_FILE == 'coco':
         return build_coco(image_set, cfg)
     if cfg.DATASET.DATASET_FILE == 'coco_panoptic':
@@ -35,12 +40,13 @@ def build_dataset(image_set, cfg,multi_task_eval_id=4):
         from .coco_panoptic import build as build_coco_panoptic
         return build_coco_panoptic(image_set, cfg)
     DAOD_dataset = [
-        'cityscapes_to_foggy_cityscapes',
+        'cityscapes_to_foggycityscapes',
         'sim10k_to_cityscapes_caronly',
         'cityscapes_to_bdd_daytime',
         'pascal_to_clipart',
     ]
     if cfg.DATASET.DATASET_FILE in DAOD_dataset:
         from .DAOD import build
+        # 여기서 전달된 multi_task_eval_id (예: 3)가 DAOD.py -> aood.py 로 넘어감
         return build(image_set, cfg, multi_task_eval_id=multi_task_eval_id)
     raise ValueError(f'dataset {cfg.DATASET.DATASET_FILE} not supported')

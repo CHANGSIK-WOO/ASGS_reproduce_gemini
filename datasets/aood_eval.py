@@ -75,8 +75,13 @@ class AOODEvaluator:
         for iou, recall in recalls.items():
             prec = []
             for cls_id, rec in enumerate(recall):               
-                if cls_id == self.unknown_class_index and len(rec)>0:
-                    p = precisions[iou][cls_id][min(range(len(rec)), key=lambda i: abs(rec[i] - recall_level))]
+                # if cls_id == self.unknown_class_index and len(rec)>0:
+                #     p = precisions[iou][cls_id][min(range(len(rec)), key=lambda i: abs(rec[i] - recall_level))]
+                #     prec.append(p)
+                if cls_id == self.unknown_class_index and len(rec) > 0:
+                    # [수정] min(range(...), key=...) -> np.argmin(np.abs(...))
+                    idx = np.argmin(np.abs(rec - recall_level))
+                    p = precisions[iou][cls_id][idx]
                     prec.append(p)
             if len(prec) > 0:
                 precs[iou] = np.mean(prec)
@@ -98,8 +103,16 @@ class AOODEvaluator:
             tp_plus_fps = []
             fps = []
             for cls_id, rec in enumerate(recall):
+                # if cls_id in range(self.num_seen_classes) and len(rec) > 0:
+                #     index = min(range(len(rec)), key=lambda i: abs(rec[i] - recall_level))
+                #     tp_plus_fp = tp_plus_fp_cs[iou][cls_id][index]
+                #     tp_plus_fps.append(tp_plus_fp)
+                #     fp = fp_os[iou][cls_id][index]
+                #     fps.append(fp)
                 if cls_id in range(self.num_seen_classes) and len(rec) > 0:
-                    index = min(range(len(rec)), key=lambda i: abs(rec[i] - recall_level))
+                    # [수정] min(range(...), key=...) -> np.argmin(np.abs(...))
+                    index = np.argmin(np.abs(rec - recall_level))
+
                     tp_plus_fp = tp_plus_fp_cs[iou][cls_id][index]
                     tp_plus_fps.append(tp_plus_fp)
                     fp = fp_os[iou][cls_id][index]

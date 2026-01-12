@@ -17,6 +17,11 @@ def build_model(cfg):
     elif cfg.AOOD.MOTIF_ON:
         print('using motif detr!')
         from .motif_detr import build
+    # --- [추가된 부분] ASGS 모델 빌드 로직 ---
+    elif cfg.AOOD.ASGS.ENABLED:
+        print('using ASGS detr!')
+        from .asgs_detr import build
+    # -------------------------------------
     else:
         print('using def detr!')
         from .deformable_detr import build

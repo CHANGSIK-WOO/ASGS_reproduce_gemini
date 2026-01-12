@@ -97,14 +97,15 @@ class Backbone(BackboneBase):
     def __init__(self, name: str,
                  train_backbone: bool,
                  return_interm_layers: bool,
-                 dilation: bool):
+                 dilation: bool,
+                 pretrained_path: str):
         norm_layer = FrozenBatchNorm2d
         # backbone = getattr(torchvision.models, name)(
         #     replace_stride_with_dilation=[False, False, dilation],
         #     pretrained=is_main_process(), norm_layer=norm_layer)
         backbone = resnet50(pretrained=False, replace_stride_with_dilation=[False, False, dilation],
                     norm_layer=norm_layer)
-        state_dict = torch.load('./dino_resnet50_pretrain.pth')
+        state_dict = torch.load(pretrained_path)
         backbone.load_state_dict(state_dict, strict=False)
         assert name not in ('resnet18', 'resnet34'), "number of channels are hard coded"
         super().__init__(backbone, train_backbone, return_interm_layers)
@@ -134,6 +135,6 @@ def build_backbone(cfg):
     position_embedding = build_position_encoding(cfg)
     train_backbone = cfg.TRAIN.LR_BACKBONE > 0
     return_interm_layers = cfg.MODEL.MASKS or (cfg.MODEL.NUM_FEATURE_LEVELS > 1)
-    backbone = Backbone(cfg.MODEL.BACKBONE, train_backbone, return_interm_layers, cfg.MODEL.DILATION)
+    backbone = Backbone(cfg.MODEL.BACKBONE, train_backbone, return_interm_layers, cfg.MODEL.DILATION, cfg.MODEL.BACKBONE_PRETRAINED_PATH)
     model = Joiner(backbone, position_embedding)
     return model

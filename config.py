@@ -91,7 +91,7 @@ _C.LOSS.DA_GAMMA = 0
 _C.DATASET = CN()
 _C.DATASET.DA_MODE = 'source_only' # ('source_only', 'uda', 'oracle')
 _C.DATASET.NUM_CLASSES = 9 # This should be set as max_class_id + 1
-_C.DATASET.DATASET_FILE = 'cityscapes_to_foggy_cityscapes'
+_C.DATASET.DATASET_FILE = 'cityscapes_to_foggycityscapes'
 _C.DATASET.COCO_PATH = '../datasets'
 _C.DATASET.COCO_PANOPTIC_PATH = None
 _C.DATASET.REMOVE_DIFFICULT = False
@@ -159,6 +159,19 @@ _C.AOOD.CROSS_DOMAIN.MOTIF_LOSS_COEF = 0.01
 _C.AOOD.CROSS_DOMAIN.KNN = 5
 _C.AOOD.CROSS_DOMAIN.BETA = 1.0
 
+# --- [추가된 부분] ASGS Configuration ---
+_C.AOOD.ASGS = CN()
+_C.AOOD.ASGS.ENABLED = False
+_C.AOOD.ASGS.ALPHA = 0.9       # Prototype update factor
+_C.AOOD.ASGS.K = 5             # Number of boundary samples
+_C.AOOD.ASGS.M = 5             # Number of KNN unmatched samples
+_C.AOOD.ASGS.DELTA = 0.6       # Similarity threshold for ASS
+_C.AOOD.ASGS.TAU = 0.1         # Temperature for CEC
+_C.AOOD.ASGS.LAMBDA_SUL = 1.0  # Loss weight for SUL
+_C.AOOD.ASGS.LAMBDA_CEC = 0.1  # Loss weight for CEC
+
+_C.MODEL.BACKBONE_PRETRAINED_PATH = '/data/datasets/ckpt/soma/dino_resnet50_pretrain.pth' # 기본값 설정
+# ---------------------------------------
 
 def get_cfg_defaults():
   """Get a yacs CfgNode object with default values for my_project."""

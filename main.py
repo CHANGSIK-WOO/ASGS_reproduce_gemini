@@ -57,7 +57,8 @@ def main(cfg):
     # assert align == (cfg.DATASET.DA_MODE == 'uda')
     # print("git:\n  {}\n".format(utils.get_sha()))
     print(cfg)
-    if cfg.DATASET.DA_MODE == 'osda':
+    if cfg.DATASET.DA_MODE == 'osda' or cfg.AOOD.ASGS.ENABLED:
+        # engine_aood의 evaluate는 AOODEvaluator를 사용하여 Open-Set 지표를 계산합니다.
         from engine_aood import evaluate, train_one_epoch
     else:
         from engine import evaluate, train_one_epoch
@@ -97,13 +98,17 @@ def main(cfg):
         sampler_val = torch.utils.data.SequentialSampler(dataset_val)
 
     if cfg.DATASET.DA_MODE == 'uda' or cfg.DATASET.DA_MODE == 'osda':
-        assert cfg.TRAIN.BATCH_SIZE % 2 == 0, f'cfg.TRAIN.BATCH_SIZE {cfg.TRAIN.BATCH_SIZE} should be a multiple of 2'
-        batch_sampler_train = torch.utils.data.BatchSampler(
-            sampler_train, cfg.TRAIN.BATCH_SIZE//2, drop_last=True)
-        data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
-                                       collate_fn=DAOD.collate_fn, num_workers=cfg.NUM_WORKERS,
-                                       pin_memory=True)
+        # ASGS는 Source Domain만 학습에 사용하므로 DA_MODE를 'uda'나 'osda'로 설정하지 않고
+        # 일반적인 로딩 방식을 따라야 합니다. (Config에서 DA_MODE: 'source_only' 권장)
+        pass
+        # assert cfg.TRAIN.BATCH_SIZE % 2 == 0, f'cfg.TRAIN.BATCH_SIZE {cfg.TRAIN.BATCH_SIZE} should be a multiple of 2'
+        # batch_sampler_train = torch.utils.data.BatchSampler(
+        #     sampler_train, cfg.TRAIN.BATCH_SIZE//2, drop_last=True)
+        # data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
+        #                                collate_fn=DAOD.collate_fn, num_workers=cfg.NUM_WORKERS,
+        #                                pin_memory=True)
     else:
+        # ASGS는 여기서 실행되어야 함 (단일 도메인 배치)
         batch_sampler_train = torch.utils.data.BatchSampler(
             sampler_train, cfg.TRAIN.BATCH_SIZE, drop_last=True)
         data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
@@ -165,9 +170,15 @@ def main(cfg):
     
     import logging
     LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+    # logging.basicConfig(
+    #     filename=cfg.OUTPUT_DIR +'/_rank_{}_'.format(utils.get_rank())+str(__file__)[:-3] + '_' + time.strftime("%Y-%m-%d_%H:%M:%S", time.localtime()) + '.log',
+    #     level=logging.INFO, format=LOG_FORMAT, filemode='w')
+    # [수정] os.path.basename()을 사용하여 경로를 제외한 파일명만 가져옵니다.
     logging.basicConfig(
-        filename=cfg.OUTPUT_DIR +'/_rank_{}_'.format(utils.get_rank())+str(__file__)[:-3] + '_' + time.strftime("%Y-%m-%d_%H:%M:%S", time.localtime()) + '.log',
+        filename=cfg.OUTPUT_DIR + '/_rank_{}_'.format(utils.get_rank()) + os.path.basename(__file__)[
+            :-3] + '_' + time.strftime("%Y-%m-%d_%H:%M:%S", time.localtime()) + '.log',
         level=logging.INFO, format=LOG_FORMAT, filemode='w')
+
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
     logging.getLogger('').addHandler(console)
@@ -316,7 +327,7 @@ def main(cfg):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Deformable DETR Detector')
-    parser.add_argument('--config_file', default='', type=str)
+    parser.add_argument('--config_file', default='configs/soma_aood_city_to_foggy_r50.yaml', type=str)
     parser.add_argument("--opts", default=None, nargs=argparse.REMAINDER)
     args = parser.parse_args()
     cfg = setup(args)
