@@ -532,53 +532,41 @@ class ASGSCriterion(nn.Module):
         assert 'pred_logits' in outputs
         src_logits = outputs['pred_logits']
 
-        # 1. 매칭된 인덱스 가져오기
-        idx = self._get_src_permutation_idx(indices)
-        target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
+        def loss_labels(self, outputs, targets, indices, num_boxes, log=True):
+            src_logits = outputs['pred_logits']
+            idx = self._get_src_permutation_idx(indices)
+            target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
 
-        # 2. 타겟 클래스 텐서 준비 (기본값: 배경)
-        # self.num_classes + 1은 배경 처리를 위한 임시 인덱스입니다.
-        target_classes = torch.full(src_logits.shape[:2], self.num_classes + 1,
-                                    dtype=torch.int64, device=src_logits.device)
-        # 매칭된 위치에 정답 라벨 할당
-        target_classes[idx] = target_classes_o
+            # Initialize with Background Class (typically self.num_classes + 1 in logic,
+            # but Focal Loss expects one-hot with last dim removed for background)
+            # Here we follow SOMA:
+            # valid classes: 0 to num_classes (including Unknown)
+            # target_classes filled with num_classes + 1 (Background)
 
-        # 3. One-hot Encoding
-        # shape: [Batch, Num_Queries, Num_Classes + 2] (배경 처리를 위해 1개 더 크게 잡음)
-        target_classes_onehot = torch.zeros([src_logits.shape[0], src_logits.shape[1], src_logits.shape[2] + 1],
-                                            dtype=src_logits.dtype, layout=src_logits.layout, device=src_logits.device)
-        target_classes_onehot.scatter_(2, target_classes.unsqueeze(-1), 1)
+            # Note: In ASGS_DETR, we defined num_classes output as known + 1.
+            # So known indices: 0..N-1. Unknown index: N.
+            # We assume dataset targets only contain known labels (0..N-1).
 
-        # 마지막 차원(임시 배경 슬롯) 제거 -> 이제 배경 쿼리는 [0, 0, ..., 0] 상태가 됨
-        target_classes_onehot = target_classes_onehot[:, :, :-1]
+            target_classes = torch.full(src_logits.shape[:2], self.num_classes + 1,
+                                        dtype=torch.int64, device=src_logits.device)
+            target_classes[idx] = target_classes_o
 
-        # -------------------------------------------------------------------------
-        # [핵심 수정 파트] 배경 쿼리에 대해 Unknown Class 무시(Ignore) 처리
-        # -------------------------------------------------------------------------
+            target_classes_onehot = torch.zeros([src_logits.shape[0], src_logits.shape[1], src_logits.shape[2] + 1],
+                                                dtype=src_logits.dtype, layout=src_logits.layout,
+                                                device=src_logits.device)
+            target_classes_onehot.scatter_(2, target_classes.unsqueeze(-1), 1)
+            target_classes_onehot = target_classes_onehot[:, :, :-1]  # Remove extra background slot
 
-        # (1) 배경(Unmatched) 쿼리 마스크 생성
-        bg_mask = torch.ones(src_logits.shape[:2], dtype=torch.bool, device=src_logits.device)
-        bg_mask[idx] = False  # 매칭된(Known) 쿼리는 제외
-
-        # (2) 배경 쿼리의 Unknown 클래스 타겟을 '현재 예측값(detach)'으로 설정
-        # 원리: 타겟값 = 예측값이 되면 BCE Loss의 Gradient가 0이 되어 학습되지 않음 (Ignore 효과)
-        # self.unknown_idx는 ASGSCriterion __init__에서 정의된 Unknown 클래스 인덱스
-
-        pred_probs = src_logits.sigmoid()
-        target_classes_onehot[bg_mask, self.unknown_idx] = pred_probs[bg_mask, self.unknown_idx].detach()
-
-        # -------------------------------------------------------------------------
-
-        # 4. Focal Loss 계산
-        loss_ce = sigmoid_focal_loss(src_logits, target_classes_onehot, num_boxes, alpha=self.focal_alpha, gamma=2) * \
-                  src_logits.shape[1]
-
-        losses = {'loss_ce': loss_ce}
-
-        if log:
-            losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
-
-        return losses
+            loss_ce = sigmoid_focal_loss(src_logits, target_classes_onehot, num_boxes, alpha=self.focal_alpha,
+                                         gamma=2) * \
+                      src_logits.shape[1]
+            losses = {'loss_ce': loss_ce}
+            # --- [추가해야 할 부분] ---
+            if log:
+                # 매칭된 쿼리에 대해서 분류 정확도를 계산하여 class_error로 기록
+                losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
+            # ------------------------
+            return losses
 
     def loss_boxes(self, outputs, targets, indices, num_boxes):
         idx = self._get_src_permutation_idx(indices)
