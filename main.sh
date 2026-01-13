@@ -46,20 +46,18 @@ echo " Output: ${OUTPUT_DIR}"
 echo "========================================================"
 
 # 2. 학습 실행 (torchrun 사용)
-# --opts 뒤에 나오는 인자들은 config.py의 설정을 덮어씁니다.
-# SOMA 로직 유지: Setting 1 (Base 3개), Task 3 (Unknown 3개 평가), Num Classes 4 (Base 3 + Unk 1)
+# [수정됨] --output_dir 삭제하고 --opts 내부로 이동
 
 torchrun --nproc_per_node=1 \
     --master_addr=${MASTER_ADDR} \
     --master_port=${MASTER_PORT} \
     main.py \
     --config_file ${CONFIG_FILE} \
-    --output_dir ${OUTPUT_DIR} \
     --opts \
+    OUTPUT_DIR ${OUTPUT_DIR} \
     DATASET.AOOD_SETTING 1 \
     DATASET.AOOD_TASK 3 \
     DATASET.NUM_CLASSES 4 \
-    TRAIN.BATCH_SIZE 4 \
     TRAIN.EPOCHS 65 \
     AOOD.ASGS.ENABLED True \
     AOOD.MOTIF_ON False \
