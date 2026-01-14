@@ -526,50 +526,60 @@ class ASGSCriterion(nn.Module):
     def loss_labels(self, outputs, targets, indices, num_boxes, log=True):
         """
         Classification Loss (Focal Loss) 계산
-        ASGS 수정: 배경(Background) 쿼리에 대해서는 Unknown Class의 Loss를 무시(Ignore)하여
-        loss_sul과의 충돌을 방지함.
+        ASGS 수정: 배경(Background) 쿼리에 대해서는 Unknown Class의 Loss를 무시(Ignore) 처리
         """
         assert 'pred_logits' in outputs
         src_logits = outputs['pred_logits']
 
-        # 1. 매칭된 인덱스 가져오기
         idx = self._get_src_permutation_idx(indices)
         target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
 
-        # 2. 타겟 클래스 텐서 준비 (기본값: 배경)
-        # self.num_classes + 1은 배경 처리를 위한 임시 인덱스입니다.
+        # 1. 타겟 클래스 텐서 준비
         target_classes = torch.full(src_logits.shape[:2], self.num_classes + 1,
                                     dtype=torch.int64, device=src_logits.device)
-        # 매칭된 위치에 정답 라벨 할당
         target_classes[idx] = target_classes_o
 
-        # 3. One-hot Encoding
-        # shape: [Batch, Num_Queries, Num_Classes + 2] (배경 처리를 위해 1개 더 크게 잡음)
+        # 2. One-hot Encoding
+        # [Batch, Queries, Classes + 1]
         target_classes_onehot = torch.zeros([src_logits.shape[0], src_logits.shape[1], src_logits.shape[2] + 1],
                                             dtype=src_logits.dtype, layout=src_logits.layout, device=src_logits.device)
+
         target_classes_onehot.scatter_(2, target_classes.unsqueeze(-1), 1)
 
-        # 마지막 차원(임시 배경 슬롯) 제거 -> 이제 배경 쿼리는 [0, 0, ..., 0] 상태가 됨
+        # 마지막 차원 제거 -> [Batch, Queries, Classes]
         target_classes_onehot = target_classes_onehot[:, :, :-1]
 
         # -------------------------------------------------------------------------
-        # [핵심 수정 파트] 배경 쿼리에 대해 Unknown Class 무시(Ignore) 처리
+        # [핵심 수정: Flatten 방식을 사용한 안전한 Ignore 처리]
+        # 에러 원인: [Mask, Index] 복합 인덱싱의 모호함 제거
         # -------------------------------------------------------------------------
 
-        # (1) 배경(Unmatched) 쿼리 마스크 생성
+        # (1) 배경 마스크 생성
         bg_mask = torch.ones(src_logits.shape[:2], dtype=torch.bool, device=src_logits.device)
-        bg_mask[idx] = False  # 매칭된(Known) 쿼리는 제외
+        bg_mask[idx] = False
 
-        # (2) 배경 쿼리의 Unknown 클래스 타겟을 '현재 예측값(detach)'으로 설정
-        # 원리: 타겟값 = 예측값이 되면 BCE Loss의 Gradient가 0이 되어 학습되지 않음 (Ignore 효과)
-        # self.unknown_idx는 ASGSCriterion __init__에서 정의된 Unknown 클래스 인덱스
+        # (2) 평탄화(Flatten) 후 인덱싱
+        # 3차원 텐서를 2차원 [Total_Queries, Classes]로 펼쳐서 처리합니다.
+        # 이렇게 하면 Batch와 Query 차원이 합쳐져 인덱싱 오류 가능성이 사라집니다.
 
-        pred_probs = src_logits.sigmoid()
-        target_classes_onehot[bg_mask, self.unknown_idx] = pred_probs[bg_mask, self.unknown_idx].detach()
+        N, Q, C = target_classes_onehot.shape
+
+        # 텐서들을 [N*Q, C] 형태로 뷰(View) 변환
+        flat_target = target_classes_onehot.view(-1, C)
+        flat_prob = src_logits.sigmoid().view(-1, C)
+        flat_mask = bg_mask.view(-1)
+
+        # 배경인 쿼리(flat_mask)들의 Unknown 클래스(self.unknown_idx) 값을 예측값으로 덮어씌움
+        # clone()을 사용하여 In-place 연산 안전성 확보
+        flat_target_clone = flat_target.clone()
+        flat_target_clone[flat_mask, self.unknown_idx] = flat_prob[flat_mask, self.unknown_idx].detach()
+
+        # 다시 원래 shape인 [N, Q, C]로 복구
+        target_classes_onehot = flat_target_clone.view(N, Q, C)
 
         # -------------------------------------------------------------------------
 
-        # 4. Focal Loss 계산
+        # 3. Focal Loss 계산
         loss_ce = sigmoid_focal_loss(src_logits, target_classes_onehot, num_boxes, alpha=self.focal_alpha, gamma=2) * \
                   src_logits.shape[1]
 

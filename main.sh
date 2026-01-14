@@ -60,7 +60,7 @@ torchrun --nproc_per_node=1 \
     DATASET.NUM_CLASSES 4 \
     TRAIN.EPOCHS 65 \
     AOOD.ASGS.ENABLED True \
-    AOOD.ASGS.DELTA 0.8 \
+    AOOD.ASGS.DELTA 0.6 \
     AOOD.MOTIF_ON False \
     ${RESUME_ARG}
 
