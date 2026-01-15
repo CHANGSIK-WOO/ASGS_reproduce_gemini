@@ -82,7 +82,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 
 @torch.no_grad()
-def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, output_dir):
+def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, output_dir, logger=None):
     model.eval()
     criterion.eval()
 
@@ -159,6 +159,23 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
     if coco_evaluator is not None:
         if 'bbox' in postprocessors.keys():
             stats['coco_eval_bbox'] = coco_evaluator.coco_eval['bbox'].stats.tolist()
+            # ================= [여기부터 추가하세요] =================
+            # 평가 스크립트(main_multi_eval.py)가 요구하는 키(Key) 생성
+            bbox_stats = stats['coco_eval_bbox']
+            # bbox_stats 순서: [mAP, AP50, AP75, AP_s, AP_m, AP_l ...]
+            mAP = bbox_stats[0]
+            ap50 = bbox_stats[1]
+            ap75 = bbox_stats[2]
+
+            # 1. 결과 파일의 헤더(제목)
+            stats['title'] = 'AP50  AP75  mAP'
+
+            # 2. 결과 수치 텍스트 (eval_results.txt에 기록됨)
+            stats['ap_map_wi_aose_ar'] = '{:.4f}  {:.4f}  {:.4f}'.format(ap50, ap75, mAP)
+
+            # 3. 최종 요약용 리스트
+            stats['report_results'] = ['{:.4f}'.format(mAP)]
+            # ================= [여기까지 추가하세요] =================
         if 'segm' in postprocessors.keys():
             stats['coco_eval_masks'] = coco_evaluator.coco_eval['segm'].stats.tolist()
     if panoptic_res is not None:

@@ -200,8 +200,10 @@ def main(cfg):
     output_dir = Path(cfg.OUTPUT_DIR)
 
     LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+    # [수정] os.path.basename() 추가
     logging.basicConfig(
-        filename=cfg.OUTPUT_DIR +'/_rank_{}_'.format(utils.get_rank())+str(__file__)[:-3] + '_' + time.strftime("%Y-%m-%d_%H:%M:%S", time.localtime()) + '.log',
+        filename=cfg.OUTPUT_DIR + '/_rank_{}_'.format(utils.get_rank()) + os.path.basename(__file__)[
+            :-3] + '_' + time.strftime("%Y-%m-%d_%H:%M:%S", time.localtime()) + '.log',
         level=logging.INFO, format=LOG_FORMAT, filemode='w')
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)

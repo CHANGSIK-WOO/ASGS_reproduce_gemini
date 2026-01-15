@@ -229,7 +229,7 @@ class ASGSCriterion(nn.Module):
         self.num_known_classes = num_classes - 1
 
 
-    def forward(self, samples, outputs, targets, epoch=0):
+    def forward(self, outputs, targets, epoch=0):
         outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs' and k != 'enc_outputs'}
 
         # 1. Hungarian Matching
