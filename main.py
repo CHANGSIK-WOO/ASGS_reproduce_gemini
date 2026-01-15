@@ -57,7 +57,7 @@ def main(cfg):
     # assert align == (cfg.DATASET.DA_MODE == 'uda')
     # print("git:\n  {}\n".format(utils.get_sha()))
     print(cfg)
-    if cfg.DATASET.DA_MODE == 'osda' or cfg.AOOD.ASGS.ENABLED:
+    if cfg.DATASET.DA_MODE == 'osda' :
         # engine_aood의 evaluate는 AOODEvaluator를 사용하여 Open-Set 지표를 계산합니다.
         from engine_aood import evaluate, train_one_epoch
     else:
