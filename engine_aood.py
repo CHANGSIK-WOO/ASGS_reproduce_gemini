@@ -172,29 +172,23 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
     #return coco_evaluator.coco_eval['bbox'].stats, coco_evaluator
     stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
-    if coco_evaluator is not None and 'bbox' in postprocessors.keys():
-        # AOODEvaluator의 결과값 가져오기 (List 형태)
-        bbox_stats = coco_evaluator.coco_eval['bbox'].stats
+    if coco_evaluator is not None:
+        if 'bbox' in postprocessors.keys():
+            bbox_stats = coco_evaluator.coco_eval['bbox'].stats
 
-        # AOOD 지표 순서 매핑 (datasets/aood_eval.py 기준)
-        # [0]: mAP (Known)
-        # [1]: AP50 (Known)
-        # [2]: AP75 (Known)
-        # [3]: AR_u (Unknown Recall)
-        # [4]: AOSE (Absolute Open-Set Error)
-        # [5]: WI (Wilderness Impact)
+            # [수정 1] 이미 포맷팅된 문자열들을 그대로 가져옵니다.
+            stats['title'] = bbox_stats['title']
+            stats['ap_map_wi_aose_ar'] = bbox_stats['ap_map_wi_aose_ar']
+            stats['report_results'] = bbox_stats['report_results']
 
-        # main.py 로그 출력용 포맷팅
-        stats['title'] = 'mAP   AP50  AP75  AR_u  AOSE  WI'
-        stats['ap_map_wi_aose_ar'] = '{:.4f}  {:.4f}  {:.4f}  {:.4f}  {:.4f}  {:.4f}'.format(
-            bbox_stats[0], bbox_stats[1], bbox_stats[2],
-            bbox_stats[3], bbox_stats[4], bbox_stats[5]
-        )
+            # [수정 2] main.py에서 'Best Model'을 저장할 때 사용하는 핵심 지표를 전달합니다.
+            # 로그를 보면 키 이름 뒤에 공백과 콜론("base_mAP: ")이 포함되어 있습니다.
+            stats['base_mAP: '] = bbox_stats['base_mAP: ']
 
-        # main_multi_eval.py 리포트용
-        stats['report_results'] = ['{:.4f}'.format(bbox_stats[0])]
+            # (선택) 전체 결과를 리스트 형태로 저장하고 싶다면 values()만 추출
+            # stats['coco_eval_bbox'] = list(bbox_stats.values())
 
-        # 원본 수치도 저장
-        stats['coco_eval_bbox'] = bbox_stats.tolist()
+        if 'segm' in postprocessors.keys():
+            stats['coco_eval_masks'] = coco_evaluator.coco_eval['segm'].stats.tolist()
 
     return stats, coco_evaluator

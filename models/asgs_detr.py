@@ -288,7 +288,7 @@ class ASGSCriterion(nn.Module):
         matched_embs = obj_embs[batch_idx, src_idx]
         target_labels = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
 
-        for k in range(self.num_classes):
+        for k in range(self.num_known_classes):
             # Select embeddings belonging to class k
             k_embs = matched_embs[target_labels == k]
             if k_embs.numel() > 0:
