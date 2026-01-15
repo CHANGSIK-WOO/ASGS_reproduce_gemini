@@ -39,11 +39,10 @@ class ASGS_DETR(nn.Module):
         self.transformer = transformer
         hidden_dim = transformer.d_model
 
-        # ASGS Note: Unknown class를 위한 추가적인 output dimension이 필요할 수 있습니다.
-        # 여기서는 num_classes가 Known Class의 개수라고 가정하고, +1을 더해 Unknown을 표현합니다.
         # Background는 Sigmoid Focal Loss에서 모든 class logit이 0인 경우로 처리됩니다.
+        # num_classes(4) = Known(3) + Unknown(1)
         self.num_classes = num_classes
-        self.class_embed = nn.Linear(hidden_dim, num_classes + 1)  # +1 for Unknown Class
+        self.class_embed = nn.Linear(hidden_dim, num_classes)
 
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
         self.num_feature_levels = num_feature_levels
@@ -89,7 +88,7 @@ class ASGS_DETR(nn.Module):
         # Init parameters
         prior_prob = 0.01
         bias_value = -math.log((1 - prior_prob) / prior_prob)
-        self.class_embed.bias.data = torch.ones(num_classes + 1) * bias_value
+        self.class_embed.bias.data = torch.ones(num_classes) * bias_value
         nn.init.constant_(self.bbox_embed.layers[-1].weight.data, 0)
         nn.init.constant_(self.bbox_embed.layers[-1].bias.data, 0)
         for proj in self.input_proj:
@@ -205,7 +204,7 @@ class ASGSCriterion(nn.Module):
 
     def __init__(self, num_classes, matcher, weight_dict, losses, focal_alpha=0.25, asgs_cfg=None):
         super().__init__()
-        self.num_classes = num_classes  # Known classes count
+        self.num_classes = num_classes  # num_classes(4) = Known(3) + Unknown(1)
         self.matcher = matcher
         self.weight_dict = weight_dict
         self.losses = losses
@@ -222,12 +221,8 @@ class ASGSCriterion(nn.Module):
         # self.unknown_idx = num_classes  <-- (4가 들어감: 배경 인덱스가 됨)
 
         # [수정 후]
-        # 1. Unknown 인덱스를 3번으로 당김 (0, 1, 2, 3)
-        self.unknown_idx = num_classes - 1
-
-        # 2. Known Class 개수 정의 (0, 1, 2 세 개만 Known)
-        self.num_known_classes = num_classes - 1
-
+        self.num_known_classes = num_classes - 1 # num_classes(4) -1 = 3
+        self.unknown_idx = num_classes - 1 # num_classes(4) -1 = 3
 
     def forward(self, outputs, targets, epoch=0):
         outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs' and k != 'enc_outputs'}
@@ -525,61 +520,42 @@ class ASGSCriterion(nn.Module):
 
     def loss_labels(self, outputs, targets, indices, num_boxes, log=True):
         """
-        Classification Loss (Focal Loss) 계산
-        ASGS 수정: 배경(Background) 쿼리에 대해서는 Unknown Class의 Loss를 무시(Ignore) 처리
+        Classification Loss (Sigmoid Focal Loss)
+        - 배경(Background)은 [0, 0, ..., 0] 벡터가 되도록 학습합니다.
+        - GT에는 Unknown 라벨이 없으므로, Unknown 클래스(마지막 인덱스)도
+          이 단계에서는 모두 0(Negative)으로 학습되어 억제됩니다.
         """
         assert 'pred_logits' in outputs
-        src_logits = outputs['pred_logits']
+        src_logits = outputs['pred_logits']  # Shape: [Batch, Query, num_classes]
 
         idx = self._get_src_permutation_idx(indices)
         target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
 
-        # 1. 타겟 클래스 텐서 준비
-        target_classes = torch.full(src_logits.shape[:2], self.num_classes + 1,
+        # [1] 배경 인덱스 설정
+        # src_logits의 채널 수가 4개(0~3)라면, 배경 인덱스는 4가 됩니다.
+        bg_class_ind = src_logits.shape[2]
+
+        # [2] 모든 타겟을 배경(4)으로 초기화
+        target_classes = torch.full(src_logits.shape[:2], bg_class_ind,
                                     dtype=torch.int64, device=src_logits.device)
+
+        # [3] 매칭된 쿼리에만 실제 라벨(Known Class ID) 할당
+        # 주의: GT에는 Unknown(3)이 없으므로, 여기에는 0, 1, 2만 들어갑니다.
         target_classes[idx] = target_classes_o
 
-        # 2. One-hot Encoding
-        # [Batch, Queries, Classes + 1]
+        # [4] One-hot Encoding
+        # 배경(4)을 표현하기 위해 잠시 차원을 +1 하여 [Batch, Query, 5]로 만듭니다.
         target_classes_onehot = torch.zeros([src_logits.shape[0], src_logits.shape[1], src_logits.shape[2] + 1],
                                             dtype=src_logits.dtype, layout=src_logits.layout, device=src_logits.device)
 
         target_classes_onehot.scatter_(2, target_classes.unsqueeze(-1), 1)
 
-        # 마지막 차원 제거 -> [Batch, Queries, Classes]
+        # [5] 마지막 차원(배경 인덱스) 제거
+        # 결과적으로 배경이었던 쿼리는 [0, 0, 0, 0]이 됩니다.
         target_classes_onehot = target_classes_onehot[:, :, :-1]
 
-        # -------------------------------------------------------------------------
-        # [핵심 수정: Flatten 방식을 사용한 안전한 Ignore 처리]
-        # 에러 원인: [Mask, Index] 복합 인덱싱의 모호함 제거
-        # -------------------------------------------------------------------------
-
-        # (1) 배경 마스크 생성
-        bg_mask = torch.ones(src_logits.shape[:2], dtype=torch.bool, device=src_logits.device)
-        bg_mask[idx] = False
-
-        # (2) 평탄화(Flatten) 후 인덱싱
-        # 3차원 텐서를 2차원 [Total_Queries, Classes]로 펼쳐서 처리합니다.
-        # 이렇게 하면 Batch와 Query 차원이 합쳐져 인덱싱 오류 가능성이 사라집니다.
-
-        N, Q, C = target_classes_onehot.shape
-
-        # 텐서들을 [N*Q, C] 형태로 뷰(View) 변환
-        flat_target = target_classes_onehot.view(-1, C)
-        flat_prob = src_logits.sigmoid().view(-1, C)
-        flat_mask = bg_mask.view(-1)
-
-        # 배경인 쿼리(flat_mask)들의 Unknown 클래스(self.unknown_idx) 값을 예측값으로 덮어씌움
-        # clone()을 사용하여 In-place 연산 안전성 확보
-        flat_target_clone = flat_target.clone()
-        flat_target_clone[flat_mask, self.unknown_idx] = flat_prob[flat_mask, self.unknown_idx].detach()
-
-        # 다시 원래 shape인 [N, Q, C]로 복구
-        target_classes_onehot = flat_target_clone.view(N, Q, C)
-
-        # -------------------------------------------------------------------------
-
-        # 3. Focal Loss 계산
+        # [6] Focal Loss 계산
+        # 기존 Baseline에 있던 unk_prob 관련 로직은 모두 삭제했습니다.
         loss_ce = sigmoid_focal_loss(src_logits, target_classes_onehot, num_boxes, alpha=self.focal_alpha, gamma=2) * \
                   src_logits.shape[1]
 

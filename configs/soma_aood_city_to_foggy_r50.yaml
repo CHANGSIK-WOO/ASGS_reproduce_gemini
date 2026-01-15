@@ -28,7 +28,7 @@ DATASET:
   DATASET_FILE: cityscapes_to_foggycityscapes
   # [중요] NUM_CLASSES 설정 (Base 개수 + 1)
   # SOMA Setting 1의 Base Class는 3개이므로, 3 + 1 = 4로 설정
-  NUM_CLASSES: 4
+  NUM_CLASSES: 4 # base class 3 + unknown 1 = 4
   REMOVE_DIFFICULT: False
 
 DEVICE: cuda

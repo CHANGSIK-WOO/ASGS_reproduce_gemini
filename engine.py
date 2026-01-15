@@ -175,6 +175,7 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
 
             # 3. 최종 요약용 리스트
             stats['report_results'] = ['{:.4f}'.format(mAP)]
+            stats['base_mAP: '] = mAP
             # ================= [여기까지 추가하세요] =================
         if 'segm' in postprocessors.keys():
             stats['coco_eval_masks'] = coco_evaluator.coco_eval['segm'].stats.tolist()
