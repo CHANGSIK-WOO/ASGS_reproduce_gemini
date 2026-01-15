@@ -169,4 +169,32 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
         stats['PQ_th'] = panoptic_res["Things"]
         stats['PQ_st'] = panoptic_res["Stuff"]
     # return stats, coco_evaluator
-    return coco_evaluator.coco_eval['bbox'].stats, coco_evaluator
+    #return coco_evaluator.coco_eval['bbox'].stats, coco_evaluator
+    stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+
+    if coco_evaluator is not None and 'bbox' in postprocessors.keys():
+        # AOODEvaluator의 결과값 가져오기 (List 형태)
+        bbox_stats = coco_evaluator.coco_eval['bbox'].stats
+
+        # AOOD 지표 순서 매핑 (datasets/aood_eval.py 기준)
+        # [0]: mAP (Known)
+        # [1]: AP50 (Known)
+        # [2]: AP75 (Known)
+        # [3]: AR_u (Unknown Recall)
+        # [4]: AOSE (Absolute Open-Set Error)
+        # [5]: WI (Wilderness Impact)
+
+        # main.py 로그 출력용 포맷팅
+        stats['title'] = 'mAP   AP50  AP75  AR_u  AOSE  WI'
+        stats['ap_map_wi_aose_ar'] = '{:.4f}  {:.4f}  {:.4f}  {:.4f}  {:.4f}  {:.4f}'.format(
+            bbox_stats[0], bbox_stats[1], bbox_stats[2],
+            bbox_stats[3], bbox_stats[4], bbox_stats[5]
+        )
+
+        # main_multi_eval.py 리포트용
+        stats['report_results'] = ['{:.4f}'.format(bbox_stats[0])]
+
+        # 원본 수치도 저장
+        stats['coco_eval_bbox'] = bbox_stats.tolist()
+
+    return stats, coco_evaluator
