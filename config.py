@@ -92,7 +92,7 @@ _C.DATASET = CN()
 _C.DATASET.DA_MODE = 'source_only' # ('source_only', 'uda', 'oracle')
 _C.DATASET.NUM_CLASSES = 9 # This should be set as max_class_id + 1
 _C.DATASET.DATASET_FILE = 'cityscapes_to_foggycityscapes'
-_C.DATASET.COCO_PATH = '../datasets'
+_C.DATASET.COCO_PATH = '/data/datasets'
 _C.DATASET.COCO_PANOPTIC_PATH = None
 _C.DATASET.REMOVE_DIFFICULT = False
 
@@ -171,6 +171,7 @@ _C.AOOD.ASGS.LAMBDA_SUL = 1.0  # Loss weight for SUL
 _C.AOOD.ASGS.LAMBDA_CEC = 0.1  # Loss weight for CEC
 
 _C.MODEL.BACKBONE_PRETRAINED_PATH = '/data/datasets/ckpt/soma/dino_resnet50_pretrain.pth' # 기본값 설정
+#_C.MODEL.BACKBONE_PRETRAINED_PATH = '/data/datasets/ckpt/soma/r50_deformable_detr-checkpoint.pth' # 기본값 설정
 # ---------------------------------------
 
 def get_cfg_defaults():

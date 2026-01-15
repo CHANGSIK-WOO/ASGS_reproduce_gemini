@@ -130,7 +130,7 @@ def build_dataset(image_set, cfg, multi_task_eval_id=None):
         from .coco_panoptic import build as build_coco_panoptic
         return build_coco_panoptic(image_set, cfg)
     DAOD_dataset = [
-        'cityscapes_to_foggycityscapes',
+        'cityscapes_to_foggy_cityscapes',
         'sim10k_to_cityscapes_caronly',
         'cityscapes_to_bdd_daytime',
         'pascal_to_clipart',

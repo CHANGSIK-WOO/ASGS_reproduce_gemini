@@ -14,26 +14,31 @@ def get_paths(root):
     root = Path(root)
     return {
         'cityscapes': {
-            'train_img': root / 'foggycityscapes/leftImg8bit/cityscapes/train',
-            'val_img': root / 'foggycityscapes/leftImg8bit/cityscapes/val',
+            'train_img': root / 'Cityscapes/leftImg8bit/train',
+            'val_img': root / 'Cityscapes/leftImg8bit/val',
             #'train_anno': root / 'Cityscapes/cocoAnnotations/cityscapes_train_cocostyle.json',
+            'val_img': root / 'Cityscapes/leftImg8bit/val',
             #'val_anno': root / 'Cityscapes/cocoAnnotations/cityscapes_foggy_val_cocostyle.json',
 
-            'train_xml': root / 'foggycityscapes/annotations',
-            'val_xml': root / 'foggycityscapes/annotations',
-            'train_data_list': root / 'foggycityscapes/tasks/train_source.txt',
-            'val_data_list': root / 'foggycityscapes/tasks/val_source.txt',
+            'train_xml': root / 'Cityscapes/AOOD_Annotations',
+            'val_xml': root / 'Cityscapes/AOOD_Annotations',
+            'train_data_list': root / 'Cityscapes/AOOD_Main/train_source.txt',
+            'val_data_list': root / 'Cityscapes/AOOD_Main/val_source.txt',
         },
-        'foggycityscapes': {
-            'train_img': root / 'foggycityscapes/leftImg8bit/foggycityscapes/train',
-            'val_img': root / 'foggycityscapes/leftImg8bit/foggycityscapes/val',
-            #'train_anno': root / 'Cityscapes/cocoAnnotations/cityscapes_train_cocostyle.json',
-            #'val_anno': root / 'Cityscapes/cocoAnnotations/cityscapes_foggy_val_cocostyle.json',
+        'foggy_cityscapes': {
+            'train_img': root / 'Cityscapes/leftImg8bit_foggy/train',
+            #'train_anno': root / 'Cityscapes/cocoAnnotations/cityscapes_foggy_train_cocostyle.json',
+            # 'val_img': root / 'Cityscapes/leftImg8bit_foggy/val',
+            # 'val_anno': root / 'Cityscapes/cocoAnnotations/cityscapes_foggy_val_cocostyle.json',
+            'val_img': root / 'Cityscapes/leftImg8bit_foggy/train',
+            #'val_anno': root / 'Cityscapes/cocoAnnotations/cityscapes_foggy_train_cocostyle.json',
 
-            'train_xml': root / 'foggycityscapes/annotations',
-            'val_xml': root / 'foggycityscapes/annotations',
-            'train_data_list': root / 'foggycityscapes/tasks/train_target.txt',
-            'val_data_list': root / 'foggycityscapes/tasks/val_target.txt',
+            'train_xml': root / 'Cityscapes/AOOD_Annotations',
+            'train_data_list': root / 'Cityscapes/AOOD_Main/train_target.txt',
+
+            'val_xml': root / 'Cityscapes/AOOD_Annotations',
+            # 'val_data_list': root / 'Cityscapes/AOOD_Main/val_target.txt',
+            'val_data_list': root / 'Cityscapes/AOOD_Main/train_target.txt',
         },
         'cityscapes_caronly': {
             'train_img': root / 'Cityscapes/leftImg8bit/train',
@@ -176,7 +181,7 @@ def build(image_set, cfg, multi_task_eval_id=4):
             print(f"cfg.AOOD.ASGS.ENABLED : {cfg.AOOD.ASGS.ENABLED}")
             # [수정] ASGS 학습 시, Source 데이터라도 Base 클래스만 남기는 필터링(remove_unk=True)이 필요함
             # 따라서 Cityscapes의 경우 AOODDetection을 사용하도록 변경
-            if cfg.AOOD.ASGS.ENABLED and cfg.DATASET.DATASET_FILE == 'cityscapes_to_foggycityscapes':
+            if cfg.AOOD.ASGS.ENABLED and cfg.DATASET.DATASET_FILE == 'cityscapes_to_foggy_cityscapes':
                 return AOODDetection(
                     img_folder=paths[source_domain]['train_img'],
                     ann_folder=paths[source_domain]['train_xml'],

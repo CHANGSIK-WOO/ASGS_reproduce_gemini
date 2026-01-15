@@ -5,7 +5,7 @@ AOOD:
     ENABLED: True  # 여기서 True로 덮어씌워야 ASGS 모델이 작동합니다.
   # novel-class
   OPEN_SET:
-    WARM_UP: 19
+    WARM_UP: 9
     TH: 0.5 
     MOTIF_ON: False
     ALPHA: 0.01 
@@ -25,7 +25,7 @@ DATASET:
   # [중요] Unknown Class 개수 조절 (SOMA 로직 유지)
   # 3: Unknown 3개 평가 / 4: Unknown 4개 평가 / 5: Unknown 5개 평가
   AOOD_TASK: 3
-  DATASET_FILE: cityscapes_to_foggycityscapes
+  DATASET_FILE: cityscapes_to_foggy_cityscapes
   # [중요] NUM_CLASSES 설정 (Base 개수 + 1)
   # SOMA Setting 1의 Base Class는 3개이므로, 3 + 1 = 4로 설정
   NUM_CLASSES: 4 # base class 3 + unknown 1 = 4
@@ -87,7 +87,7 @@ SEED: 42 # This cannot strictly control the same results. Sorry, I do not know w
 START_EPOCH: 0
 EVAL_EPOCH: 29
 TRAIN:
-  BATCH_SIZE: 6 # each gpu, 2 for source and 2 for target
+  BATCH_SIZE: 4 # each gpu, 2 for source and 2 for target
   CLIP_MAX_NORM: 0.1
   EPOCHS: 65
   LR: 0.0002

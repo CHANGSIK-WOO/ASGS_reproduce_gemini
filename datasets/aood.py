@@ -121,7 +121,7 @@ class AOODDetection(VisionDataset):
         }
 
         self.scene = scene
-        if self.scene == 'cityscapes' or self.scene == 'bdd_daytime' or self.scene == 'foggycityscapes':
+        if self.scene == 'cityscapes' or self.scene == 'bdd_daytime' or self.scene == 'foggy_cityscapes':
             self.BASE_CLASSES, self.NOVEL_CLASSES, self.ALL_CLASSES, self.CLASS_NAMES = self.get_aood_settings_cityscapes(setting)
         elif self.scene == 'pascal' or  self.scene == 'clipart':
             self.BASE_CLASSES, self.NOVEL_CLASSES, self.ALL_CLASSES, self.CLASS_NAMES = self.get_aood_settings_pascal_voc(setting)
@@ -176,7 +176,7 @@ class AOODDetection(VisionDataset):
 
         self.image_set.extend(file_names)
 
-        suffix = ".png" if self.scene == 'cityscapes' or self.scene == 'foggycityscapes' else '.jpg'
+        suffix = ".png" if self.scene == 'cityscapes' or self.scene == 'foggy_cityscapes' else '.jpg'
         self.images.extend([os.path.join(img_folder, x + suffix) for x in file_names])
         self.annotations.extend([os.path.join(ann_folder, x + ".xml") for x in file_names])
 

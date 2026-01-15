@@ -92,8 +92,10 @@ class BackboneBase(nn.Module):
             out[name] = NestedTensor(x, mask)
         return out
 
+
 class Backbone(BackboneBase):
     """ResNet backbone with frozen BatchNorm."""
+
     def __init__(self, name: str,
                  train_backbone: bool,
                  return_interm_layers: bool,
@@ -104,9 +106,41 @@ class Backbone(BackboneBase):
         #     replace_stride_with_dilation=[False, False, dilation],
         #     pretrained=is_main_process(), norm_layer=norm_layer)
         backbone = resnet50(pretrained=False, replace_stride_with_dilation=[False, False, dilation],
-                    norm_layer=norm_layer)
-        state_dict = torch.load(pretrained_path)
-        backbone.load_state_dict(state_dict, strict=False)
+                            norm_layer=norm_layer)
+
+        # [수정된 부분 시작] ----------------------------------------------------
+        if pretrained_path is not None:
+            print(f"Loading Backbone from: {pretrained_path}")
+            checkpoint = torch.load(pretrained_path, map_location="cpu")
+
+            # 1. DINO 체크포인트 구조 처리 ('teacher'나 'student' 키가 있을 수 있음)
+            if 'teacher' in checkpoint:
+                state_dict = checkpoint['teacher']
+            elif 'student' in checkpoint:
+                state_dict = checkpoint['student']
+            elif 'model' in checkpoint:
+                state_dict = checkpoint['model']
+            else:
+                state_dict = checkpoint
+
+            # 2. 키 이름 매핑 (DINO 형식 -> Torchvision ResNet 형식)
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                # 'module.', 'backbone.' 등의 접두사를 제거해야 모델 키와 일치함
+                k = k.replace("module.", "").replace("backbone.", "")
+                new_state_dict[k] = v
+
+            # 3. 모델에 로드 실행 (로그 출력 추가)
+            missing, unexpected = backbone.load_state_dict(new_state_dict, strict=False)
+
+            print(f"MISSING KEYS: {len(missing)}")
+            # conv1.weight가 missing에 없어야 진짜 성공
+            if 'conv1.weight' not in missing and 'body.conv1.weight' not in missing:
+                print(">> SUCCESS: Backbone weights loaded successfully!")
+            else:
+                print(f">> WARNING: Backbone weights might NOT be loaded correctly. Missing: {missing[:5]}")
+        # [수정된 부분 끝] ------------------------------------------------------
+
         assert name not in ('resnet18', 'resnet34'), "number of channels are hard coded"
         super().__init__(backbone, train_backbone, return_interm_layers)
         if dilation:
