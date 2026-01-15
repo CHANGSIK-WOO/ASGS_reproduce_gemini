@@ -43,7 +43,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     for _ in metric_logger.log_every(range(len(data_loader)), print_freq, header, logger=logger):
         outputs = model(samples)
         # loss_dict = criterion(outputs, targets, epoch)
-        loss_dict = criterion(samples, outputs, targets, epoch)
+        loss_dict = criterion(outputs, targets, epoch)
         weight_dict = criterion.weight_dict
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
 
@@ -108,7 +108,7 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
         outputs = model(samples)
-        loss_dict = criterion(samples, outputs, targets,epoch=0)
+        loss_dict = criterion(outputs, targets, epoch=0)
         weight_dict = criterion.weight_dict
 
         # reduce losses over all GPUs for logging purposes

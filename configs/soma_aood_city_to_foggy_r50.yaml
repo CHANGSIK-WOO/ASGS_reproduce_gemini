@@ -5,7 +5,7 @@ AOOD:
     ENABLED: True  # 여기서 True로 덮어씌워야 ASGS 모델이 작동합니다.
   # novel-class
   OPEN_SET:
-    WARM_UP: 20
+    WARM_UP: 0
     TH: 0.5 
     MOTIF_ON: False
     ALPHA: 0.01 
