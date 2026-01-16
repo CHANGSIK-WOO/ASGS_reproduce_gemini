@@ -6,11 +6,10 @@ AOOD:
   # novel-class
   OPEN_SET:
     WARM_UP: 9
-    TH: 0.5 
+    TH: 0.6
     MOTIF_ON: False
-    ALPHA: 0.01 
-    KNN: 5 
-    UNK_PROB: 0.5 
+    ALPHA: 0.01
+    UNK_PROB: 0.5
     MOTIF_LOSS_COEF: 0.1 
   # novel-scene
   CROSS_DOMAIN:

@@ -53,15 +53,14 @@ torchrun --nproc_per_node=2 \
     --master_port=${MASTER_PORT} \
     main.py \
     --config_file ${CONFIG_FILE} \
-    --opts \
-    OUTPUT_DIR ${OUTPUT_DIR} \
-    DATASET.AOOD_SETTING 1 \
-    DATASET.AOOD_TASK 3 \
-    DATASET.NUM_CLASSES 4 \
-    TRAIN.EPOCHS 65 \
-    AOOD.ASGS.ENABLED True \
-    AOOD.ASGS.DELTA 0.6 \
-    AOOD.MOTIF_ON False \
+#    --opts \
+#    OUTPUT_DIR ${OUTPUT_DIR} \
+#    DATASET.AOOD_SETTING 1 \
+#    DATASET.AOOD_TASK 3 \
+#    DATASET.NUM_CLASSES 4 \
+#    TRAIN.EPOCHS 65 \
+#    AOOD.ASGS.ENABLED True \
+#    AOOD.MOTIF_ON False \
     ${RESUME_ARG}
 
 echo ""

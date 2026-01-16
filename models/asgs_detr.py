@@ -213,7 +213,8 @@ class ASGSCriterion(nn.Module):
         self.alpha_proto = 0.9  # EMA factor (Paper Eq 1)
         self.K_boundary = 5  # Number of boundary samples
         self.M_knn = 5  # Number of KNN unmatched samples
-        self.delta_sim = 0.6  # Similarity threshold for ASS
+        self.delta_sim = self.asgs_cfg.get('delta', 0.6)  # Similarity threshold for ASS
+        print(f"✅ ASGS Criterion Initialized with Delta (TH): {self.delta_sim}")
         self.tau_cec = 0.1  # Temperature for CEC
         # [수정 전]
         # self.unknown_idx = num_classes  <-- (4가 들어감: 배경 인덱스가 됨)
@@ -633,7 +634,7 @@ def build(cfg):
         'loss_bbox': cfg.LOSS.BBOX_LOSS_COEF,
         'loss_giou': cfg.LOSS.GIOU_LOSS_COEF,
         'loss_sul': 1.0,  # Lambda 1 in paper
-        'loss_cec': 0.1  # Lambda 2 in paper
+        'loss_cec': 0.5  # Lambda 2 in paper
     }
 
     if cfg.LOSS.AUX_LOSS:
