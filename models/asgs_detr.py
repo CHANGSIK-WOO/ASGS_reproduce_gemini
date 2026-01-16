@@ -124,7 +124,6 @@ class ASGS_DETR(nn.Module):
             srcs.append(self.input_proj[l](src))
             masks.append(mask)
             assert mask is not None
-
         if self.num_feature_levels > len(srcs):
             _len_srcs = len(srcs)
             for l in range(_len_srcs, self.num_feature_levels):
@@ -165,7 +164,6 @@ class ASGS_DETR(nn.Module):
             outputs_coord = tmp.sigmoid()
             outputs_classes.append(outputs_class)
             outputs_coords.append(outputs_coord)
-
         outputs_class = torch.stack(outputs_classes)
         outputs_coord = torch.stack(outputs_coords)
 
@@ -337,8 +335,13 @@ class ASGSCriterion(nn.Module):
                 q_m_k = matched_q[tgt_labels_b == k]  # Q_m^k
                 proto_k = prototypes[k]
 
+                # [수정 코드] Feature를 정규화하여 방향(Direction) 차이를 기반으로 경계 샘플 선정
+                # proto_k는 update_prototypes에서 이미 정규화되어 있음
+                q_m_k_norm = F.normalize(q_m_k, p=2, dim=1)
+
                 # Calculate distance to prototype
-                dists = torch.norm(q_m_k - proto_k, dim=1)
+                # 정규화된 벡터 간의 L2 거리는 각도 차이와 비례함
+                dists = torch.norm(q_m_k_norm - proto_k, dim=1)
 
                 # Select Boundary Samples (Top K farthest)
                 K = min(self.K_boundary, len(dists))
@@ -529,6 +532,7 @@ class ASGSCriterion(nn.Module):
         src_logits = outputs['pred_logits']  # Shape: [Batch, Query, num_classes]
 
         idx = self._get_src_permutation_idx(indices)
+
         target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
 
         # [1] 배경 인덱스 설정
