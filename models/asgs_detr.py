@@ -278,27 +278,27 @@ class ASGSCriterion(nn.Module):
     @torch.no_grad()
     def update_prototypes(self, outputs, targets, indices):
         """ Update Class Prototypes using EMA (Eq 1) """
-        cls_means = outputs['cls_means']  # Buffer [num_classes, dim]
-        obj_embs = outputs['object_embedding']  # [B, N, dim]
+        cls_means = outputs['cls_means']
+        obj_embs = outputs['object_embedding']
 
-        # Gather all matched embeddings and their labels
         batch_idx, src_idx = self._get_src_permutation_idx(indices)
         matched_embs = obj_embs[batch_idx, src_idx]
         target_labels = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
 
         for k in range(self.num_known_classes):
-            # Select embeddings belonging to class k
             k_embs = matched_embs[target_labels == k]
             if k_embs.numel() > 0:
-                # Calculate Mean
                 k_mean = k_embs.mean(dim=0)
-                # Normalize (As per Eq 1: Normalize(alpha*mu + (1-alpha)*Mean))
-                # Note: The equation order in paper usually implies updating the vector then normalizing
+
+                # [수정] k_mean을 먼저 정규화하여 크기를 1로 맞춤
+                # 이제 "방향(Direction)"끼리의 합성이 되어 alpha(0.9) 비율이 정확히 지켜짐
+                k_mean = F.normalize(k_mean, p=2, dim=0)
+
                 updated_proto = self.alpha_proto * cls_means[k] + (1 - self.alpha_proto) * k_mean
                 updated_proto = F.normalize(updated_proto, p=2, dim=0)
                 cls_means[k] = updated_proto.detach()
 
-        outputs['cls_means'] = cls_means  # Update in place
+        outputs['cls_means'] = cls_means
 
     def get_sul_loss(self, outputs, targets, indices):
         """ Subgraph-wise Unknown-class Learning (Eq 3) """
