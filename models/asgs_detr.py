@@ -210,12 +210,12 @@ class ASGSCriterion(nn.Module):
 
         # ASGS Hyperparameters
         self.asgs_cfg = asgs_cfg
-        self.alpha_proto = 0.9  # EMA factor (Paper Eq 1)
-        self.K_boundary = 5  # Number of boundary samples
-        self.M_knn = 5  # Number of KNN unmatched samples
+        self.alpha_proto = self.asgs_cfg.get('alpha', 0.9)  # EMA factor (Paper Eq 1)
+        self.K_boundary = self.asgs_cfg.get('K_boundary', 5)  # Number of boundary samples
+        self.M_knn = self.asgs_cfg.get('M_knn', 5)  # Number of KNN unmatched samples
         self.delta_sim = self.asgs_cfg.get('delta', 0.6)  # Similarity threshold for ASS
         print(f"✅ ASGS Criterion Initialized with Delta (TH): {self.delta_sim}")
-        self.tau_cec = 0.1  # Temperature for CEC
+        self.tau_cec = self.asgs_cfg.get('tau', 0.1)  # Temperature for CEC
         # [수정 전]
         # self.unknown_idx = num_classes  <-- (4가 들어감: 배경 인덱스가 됨)
 
@@ -606,12 +606,12 @@ def build(cfg):
 
     # ASGS Configuration
     asgs_cfg = {
-        'K_boundary': 5,
-        'M_knn': 5,
-        'delta': cfg.AOOD.OPEN_SET.TH,
-        'alpha': 0.9,
-        'tau': 0.1,
-        'WARM_UP': cfg.AOOD.OPEN_SET.WARM_UP  # [추가] Config에서 값(9)을 가져와 전달
+        'K_boundary': cfg.AOOD.ASGS.K,
+        'M_knn': cfg.AOOD.ASGS.M,
+        'delta': cfg.AOOD.ASGS.DELTA,
+        'alpha': cfg.AOOD.ASGS.ALPHA,
+        'tau': cfg.AOOD.ASGS.TAU,
+        'WARM_UP': cfg.AOOD.ASGS.WARM_UP  # [추가] Config에서 값(9)을 가져와 전달
     }
 
     model = ASGS_DETR(
@@ -633,8 +633,8 @@ def build(cfg):
         'loss_ce': cfg.LOSS.CLS_LOSS_COEF,
         'loss_bbox': cfg.LOSS.BBOX_LOSS_COEF,
         'loss_giou': cfg.LOSS.GIOU_LOSS_COEF,
-        'loss_sul': 1.0,  # Lambda 1 in paper
-        'loss_cec': 0.5  # Lambda 2 in paper
+        'loss_sul': cfg.AOOD.ASGS.LAMBDA_SUL,  # Lambda 1 in paper
+        'loss_cec': cfg.AOOD.ASGS.LAMBDA_CEC,  # Lambda 2 in paper
     }
 
     if cfg.LOSS.AUX_LOSS:

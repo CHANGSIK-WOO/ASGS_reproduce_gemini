@@ -167,8 +167,9 @@ _C.AOOD.ASGS.K = 5             # Number of boundary samples
 _C.AOOD.ASGS.M = 5             # Number of KNN unmatched samples
 _C.AOOD.ASGS.DELTA = 0.6       # Similarity threshold for ASS
 _C.AOOD.ASGS.TAU = 0.1         # Temperature for CEC
+_C.AOOD.ASGS.WARM_UP = 9  # Loss weight for SUL
 _C.AOOD.ASGS.LAMBDA_SUL = 1.0  # Loss weight for SUL
-_C.AOOD.ASGS.LAMBDA_CEC = 0.5  # Loss weight for CEC
+_C.AOOD.ASGS.LAMBDA_CEC = 0.1  # Loss weight for CEC
 
 _C.MODEL.BACKBONE_PRETRAINED_PATH = '/data/datasets/ckpt/soma/dino_resnet50_pretrain.pth' # 기본값 설정
 #_C.MODEL.BACKBONE_PRETRAINED_PATH = '/data/datasets/ckpt/soma/r50_deformable_detr-checkpoint.pth' # 기본값 설정

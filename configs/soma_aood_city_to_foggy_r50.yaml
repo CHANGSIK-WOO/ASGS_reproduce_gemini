@@ -3,6 +3,14 @@ AOOD:
   MOTIF_ON: False
   ASGS:
     ENABLED: True  # 여기서 True로 덮어씌워야 ASGS 모델이 작동합니다.
+    K: 5
+    M: 5
+    DELTA: 0.5
+    ALPHA: 0.99
+    TAU: 0.1
+    WARM_UP: 9
+    LAMBDA_SUL: 1.0
+    LAMBDA_CEC: 0.1
   # novel-class
   OPEN_SET:
     WARM_UP: 9
@@ -89,8 +97,8 @@ TRAIN:
   BATCH_SIZE: 4 # each gpu, 2 for source and 2 for target
   CLIP_MAX_NORM: 0.1
   EPOCHS: 65
-  LR: 0.0002
-  LR_BACKBONE: 2e-05
+  LR: 0.0002 #default : 0.0002
+  LR_BACKBONE: 2e-05 #default : 2e-05
   LR_BACKBONE_NAMES: ['backbone.0']
   LR_DROP: 40
   LR_DROP_EPOCHS: None

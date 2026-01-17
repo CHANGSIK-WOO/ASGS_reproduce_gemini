@@ -2,11 +2,11 @@
 
 #SBATCH --job-name=asgs_het_sem_3
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:4
 #SBATCH -p batch
 #SBATCH -w vgi1
 #SBATCH --cpus-per-gpu=12
-#SBATCH --mem=20G
+#SBATCH --mem=15G
 #SBATCH --time=2-0
 #SBATCH -o ./logs/%N_%x_%j.out
 #SBATCH -e ./logs/%N_%x_%j.err
@@ -48,7 +48,7 @@ echo "========================================================"
 # 2. 학습 실행 (torchrun 사용)
 # [수정됨] --output_dir 삭제하고 --opts 내부로 이동
 
-torchrun --nproc_per_node=2 \
+torchrun --nproc_per_node=4 \
     --master_addr=${MASTER_ADDR} \
     --master_port=${MASTER_PORT} \
     main.py \

@@ -232,7 +232,7 @@ def main(cfg):
             results = test_stats['ap_map_wi_aose_ar']
             results = 'Epoch : ' + results + '\n'
             if utils.is_main_process():
-                results_dir = output_dir  /'eval_results.txt'
+                results_dir = output_dir  / f'eval_results_DELTA_{cfg.AOOD.ASGS.DELTA}_ALPHA_{cfg.AOOD.ASGS.ALPHA}_SUL_{cfg.AOOD.ASGS.LAMBDA_SUL}_CEC_{cfg.AOOD.ASGS.LAMBDA_CEC}_BATCH_{cfg.TRAIN.BATCH_SIZE}_LR_{cfg.TRAIN.LR}.txt'
                 
                 with open(results_dir, 'a') as f:
                     f.write(title)
@@ -290,7 +290,7 @@ def main(cfg):
             title = test_stats['title'] + '\n'
             results = test_stats['ap_map_wi_aose_ar']
             results = 'Epoch {}: '.format(epoch) + results + '\n'
-            results_dir = output_dir  /'eval_results.txt'
+            results_dir = output_dir  / f'eval_results_DELTA_{cfg.AOOD.ASGS.DELTA}_ALPHA_{cfg.AOOD.ASGS.ALPHA}_SUL_{cfg.AOOD.ASGS.LAMBDA_SUL}_CEC_{cfg.AOOD.ASGS.LAMBDA_CEC}_BATCH_{cfg.TRAIN.BATCH_SIZE}_LR_{cfg.TRAIN.LR}.txt'
             if utils.is_main_process():
                 if epoch == 0:
                     with open(results_dir, 'a') as f:
