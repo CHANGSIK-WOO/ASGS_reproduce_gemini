@@ -5,8 +5,8 @@ AOOD:
     ENABLED: True  # 여기서 True로 덮어씌워야 ASGS 모델이 작동합니다.
     K: 5
     M: 5
-    DELTA: 0.5
-    ALPHA: 0.99
+    DELTA: 0.6
+    ALPHA: 0.9
     TAU: 0.1
     WARM_UP: 9
     LAMBDA_SUL: 1.0
