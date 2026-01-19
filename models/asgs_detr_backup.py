@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch import nn
 import math
 import copy
+import torch.distributed as dist
 
 from util import box_ops
 from util.misc import (NestedTensor, nested_tensor_from_tensor_list,
@@ -39,11 +40,10 @@ class ASGS_DETR(nn.Module):
         self.transformer = transformer
         hidden_dim = transformer.d_model
 
-        # ASGS Note: Unknown class를 위한 추가적인 output dimension이 필요할 수 있습니다.
-        # 여기서는 num_classes가 Known Class의 개수라고 가정하고, +1을 더해 Unknown을 표현합니다.
         # Background는 Sigmoid Focal Loss에서 모든 class logit이 0인 경우로 처리됩니다.
+        # num_classes(4) = Known(3) + Unknown(1)
         self.num_classes = num_classes
-        self.class_embed = nn.Linear(hidden_dim, num_classes + 1)  # +1 for Unknown Class
+        self.class_embed = nn.Linear(hidden_dim, num_classes)
 
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
         self.num_feature_levels = num_feature_levels
@@ -89,7 +89,7 @@ class ASGS_DETR(nn.Module):
         # Init parameters
         prior_prob = 0.01
         bias_value = -math.log((1 - prior_prob) / prior_prob)
-        self.class_embed.bias.data = torch.ones(num_classes + 1) * bias_value
+        self.class_embed.bias.data = torch.ones(num_classes) * bias_value
         nn.init.constant_(self.bbox_embed.layers[-1].weight.data, 0)
         nn.init.constant_(self.bbox_embed.layers[-1].bias.data, 0)
         for proj in self.input_proj:
@@ -125,7 +125,6 @@ class ASGS_DETR(nn.Module):
             srcs.append(self.input_proj[l](src))
             masks.append(mask)
             assert mask is not None
-
         if self.num_feature_levels > len(srcs):
             _len_srcs = len(srcs)
             for l in range(_len_srcs, self.num_feature_levels):
@@ -166,7 +165,6 @@ class ASGS_DETR(nn.Module):
             outputs_coord = tmp.sigmoid()
             outputs_classes.append(outputs_class)
             outputs_coords.append(outputs_coord)
-
         outputs_class = torch.stack(outputs_classes)
         outputs_coord = torch.stack(outputs_coords)
 
@@ -205,7 +203,7 @@ class ASGSCriterion(nn.Module):
 
     def __init__(self, num_classes, matcher, weight_dict, losses, focal_alpha=0.25, asgs_cfg=None):
         super().__init__()
-        self.num_classes = num_classes  # Known classes count
+        self.num_classes = num_classes  # num_classes(4) = Known(3) + Unknown(1)
         self.matcher = matcher
         self.weight_dict = weight_dict
         self.losses = losses
@@ -213,23 +211,22 @@ class ASGSCriterion(nn.Module):
 
         # ASGS Hyperparameters
         self.asgs_cfg = asgs_cfg
-        self.alpha_proto = 0.9  # EMA factor (Paper Eq 1)
-        self.K_boundary = 5  # Number of boundary samples
-        self.M_knn = 5  # Number of KNN unmatched samples
-        self.delta_sim = 0.6  # Similarity threshold for ASS
-        self.tau_cec = 0.1  # Temperature for CEC
+        self.alpha_proto = self.asgs_cfg.get('alpha', 0.9)  # EMA factor (Paper Eq 1)
+        self.K_boundary = self.asgs_cfg.get('K_boundary', 5)  # Number of boundary samples
+        self.M_knn = self.asgs_cfg.get('M_knn', 5)  # Number of KNN unmatched samples
+        self.delta_sim = self.asgs_cfg.get('delta', 0.6)  # Similarity threshold for ASS
+        print(f"✅ ASGS Criterion Initialized with Delta (TH): {self.delta_sim}")
+        self.tau_cec = self.asgs_cfg.get('tau', 0.1)  # Temperature for CEC
         # [수정 전]
         # self.unknown_idx = num_classes  <-- (4가 들어감: 배경 인덱스가 됨)
 
         # [수정 후]
-        # 1. Unknown 인덱스를 3번으로 당김 (0, 1, 2, 3)
-        self.unknown_idx = num_classes - 1
+        self.num_known_classes = num_classes - 1 # num_classes(4) -1 = 3
+        self.unknown_idx = num_classes - 1 # num_classes(4) -1 = 3
+        # [추가] 디버깅용 카운터
+        self.debug_counter = 0
 
-        # 2. Known Class 개수 정의 (0, 1, 2 세 개만 Known)
-        self.num_known_classes = num_classes - 1
-
-
-    def forward(self, samples, outputs, targets, epoch=0):
+    def forward(self, outputs, targets, epoch=0):
         outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs' and k != 'enc_outputs'}
 
         # 1. Hungarian Matching
@@ -285,144 +282,118 @@ class ASGSCriterion(nn.Module):
     @torch.no_grad()
     def update_prototypes(self, outputs, targets, indices):
         """ Update Class Prototypes using EMA (Eq 1) """
-        cls_means = outputs['cls_means']  # Buffer [num_classes, dim]
-        obj_embs = outputs['object_embedding']  # [B, N, dim]
+        cls_means = outputs['cls_means']
+        obj_embs = outputs['object_embedding']
 
-        # Gather all matched embeddings and their labels
         batch_idx, src_idx = self._get_src_permutation_idx(indices)
         matched_embs = obj_embs[batch_idx, src_idx]
         target_labels = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
 
-        for k in range(self.num_classes):
-            # Select embeddings belonging to class k
+        for k in range(self.num_known_classes):
             k_embs = matched_embs[target_labels == k]
             if k_embs.numel() > 0:
-                # Calculate Mean
                 k_mean = k_embs.mean(dim=0)
-                # Normalize (As per Eq 1: Normalize(alpha*mu + (1-alpha)*Mean))
-                # Note: The equation order in paper usually implies updating the vector then normalizing
+
+                # [수정] k_mean을 먼저 정규화하여 크기를 1로 맞춤
+                # 이제 "방향(Direction)"끼리의 합성이 되어 alpha(0.9) 비율이 정확히 지켜짐
+                k_mean = F.normalize(k_mean, p=2, dim=0)
+
                 updated_proto = self.alpha_proto * cls_means[k] + (1 - self.alpha_proto) * k_mean
                 updated_proto = F.normalize(updated_proto, p=2, dim=0)
                 cls_means[k] = updated_proto.detach()
 
-        outputs['cls_means'] = cls_means  # Update in place
+        outputs['cls_means'] = cls_means
 
     def get_sul_loss(self, outputs, targets, indices):
         """ Subgraph-wise Unknown-class Learning (Eq 3) """
-        # Data preparation
-        obj_embs = outputs['object_embedding']  # [B, 100, D]
-        prototypes = outputs['cls_means']  # [K, D]
+        obj_embs = outputs['object_embedding']  # [B, 100, D] (Raw Features)
+        prototypes = outputs['cls_means']  # [K, D] (Normalized in update_prototypes)
         batch_idx, src_idx = self._get_src_permutation_idx(indices)
 
         subgraph_features = []
 
-        # Iterate over batch to handle queries per image
+        # 디버깅: Subgraph 생성 개수 모니터링을 위한 리스트
+        debug_subgraph_counts = []
+
         for b in range(len(targets)):
-            # 1. Separate Matched (Known) and Unmatched (Potential Unknown)
-            # Indices for this batch element
             src_idx_b = src_idx[batch_idx == b]
             tgt_labels_b = targets[b]['labels'][indices[b][1]]
 
             matched_q = obj_embs[b, src_idx_b]
 
-            # Unmatched indices: All indices excluding src_idx_b
-            all_indices = torch.arange(obj_embs.shape[1], device=obj_embs.device)
-            # Create a mask for unmatched
             is_matched = torch.zeros(obj_embs.shape[1], dtype=torch.bool, device=obj_embs.device)
             is_matched[src_idx_b] = True
-            unmatched_q = obj_embs[b, ~is_matched]  # Q_um
+            unmatched_q = obj_embs[b, ~is_matched]
 
             if unmatched_q.size(0) == 0 or matched_q.size(0) == 0:
                 continue
 
-            # 2. Iterate per Known Class present in this image
             unique_classes = tgt_labels_b.unique()
             for k in unique_classes:
-                # Class specific matched queries
-                q_m_k = matched_q[tgt_labels_b == k]  # Q_m^k
+                q_m_k = matched_q[tgt_labels_b == k]
                 proto_k = prototypes[k]
 
-                # Calculate distance to prototype
-                dists = torch.norm(q_m_k - proto_k, dim=1)
+                # 1. Boundary 선정: "방향(Cosine)" 기준
+                q_m_k_norm = F.normalize(q_m_k, p=2, dim=1)  # 정규화
 
-                # Select Boundary Samples (Top K farthest)
-                K = min(self.K_boundary, len(dists))
-                _, bound_indices = torch.topk(dists, K)
-                boundary_samples = q_m_k[bound_indices]  # [K, D]
+                # Cosine Distance 사용 (유사도가 낮을수록 Boundary)
+                # proto_k는 이미 정규화되어 있음
+                cosine_sims = torch.mm(q_m_k_norm, proto_k.unsqueeze(1)).squeeze(1)
+                cosine_dists = 1 - cosine_sims
 
-                # 3. KNN & ASS for each boundary sample
-                # Normalize for Cosine Sim (Eq 2 uses L2 distance on normalized features which is related to CosSim)
+                K = min(self.K_boundary, len(cosine_dists))
+                _, bound_indices = torch.topk(cosine_dists, K)
+
+                # [중요] Subgraph 구성용 Feature는 "원본(Raw)"을 사용해야 함!
+                # Classifier가 Raw Scale을 기대하기 때문
+                boundary_samples = q_m_k[bound_indices]
+
+                # 2. KNN을 위한 정규화 (선택된 Boundary만 정규화)
+                # 여기서 q_m_k_norm[bound_indices]를 써도 되지만,
+                # 코드 가독성과 안전성을 위해 boundary_samples를 정규화하는 것이 명확함
                 boundary_norm = F.normalize(boundary_samples, p=2, dim=1)
                 unmatched_norm = F.normalize(unmatched_q, p=2, dim=1)
 
-                # Compute Cosine Similarity matrix [K, N_unmatched]
                 sim_matrix = torch.mm(boundary_norm, unmatched_norm.t())
 
                 for i in range(len(boundary_samples)):
-                    # KNN: Find top M nearest unmatched samples
                     M = min(self.M_knn, unmatched_q.size(0))
-                    # Note: Paper says "nearest" by L2 dist. Max Cosine Sim is equivalent for normalized vectors.
                     sim_vals, top_m_idx = torch.topk(sim_matrix[i], M)
-                    # --- [디버깅용 출력 추가] ---
-                    # 가장 높은 유사도가 얼마인지 확인 (너무 자주 출력되면 귀찮으니 가끔 출력)
-                    if torch.rand(1).item() < 0.01:
-                        print(f"[DEBUG] Max Similarity: {sim_vals.max().item():.4f} (Threshold: {self.delta_sim})")
-                    # ------------------------
 
-                    # Adaptive Subgraph Searching (ASS)
-                    # Connect if similarity > delta (Paper Eq below 2)
+                    # [개선] 디버그 출력 효율화 (1000번에 1번만 출력)
+                    self.debug_counter += 1
+                    if self.debug_counter % 1000 == 0:
+                        print(f"[DEBUG] Max Similarity: {sim_vals.max().item():.4f} (Threshold: {self.delta_sim})")
+
                     valid_mask = sim_vals > self.delta_sim
                     valid_indices = top_m_idx[valid_mask]
 
                     if len(valid_indices) > 0:
-                        # Construct Subgraph
-                        # Subgraph nodes: Boundary Sample + Valid Unmatched Neighbors
+                        # Subgraph 구성 (Raw Features 사용)
                         nodes = torch.cat([boundary_samples[i].unsqueeze(0), unmatched_q[valid_indices]], dim=0)
-
-                        # Mean Representation (G_bar)
                         g_bar = nodes.mean(dim=0)
                         subgraph_features.append(g_bar)
 
+        # [개선] Subgraph 생성 실패 로깅
         if len(subgraph_features) == 0:
+            # 너무 자주 출력되지 않도록 확률적 또는 카운터로 조절
+            if self.debug_counter % 1000 == 0:
+                print(f"[SUL WARNING] No subgraphs created! (Delta={self.delta_sim})")
             return {'loss_sul': torch.tensor(0.0, device=obj_embs.device)}
 
-        # 4. Compute Loss (Eq 3)
-        # Classify subgraph mean as "Unknown" class
-        subgraph_features = torch.stack(subgraph_features)  # [N_subgraphs, D]
+        subgraph_features = torch.stack(subgraph_features)
 
         # Classifier Prediction
-        # Note: self.class_embed has weights [num_classes+1, D]
-        # We assume the last class index (self.num_classes) represents "Unknown"
-        # Since we are using an external criterion, we might need access to the classifier weights.
-        # Ideally, pass the classifier in init or outputs.
-        # Here we assume outputs has 'pred_logits' produced by the same linear layer,
-        # but we need to pass G_bar through it.
-        # Let's assume we can access the linear layer from the model or pass it to criterion.
-        # HACK: Using functional linear with weights from 'final_classifier' if stored in outputs by model
-
-        # Assuming ASGS_DETR stores the classifier weight in outputs just like SOMA did?
-        # SOMA did: out['final_classifier'] = self.class_embed[-1]
-        # We will assume ASGS_DETR does the same or we pass it.
-
-        # Let's assume we modified ASGS_DETR to output the classifier layer or weights
-        # Or simpler: access via stored weights if accessible.
-        # For this snippet, I'll calculate logits using a placeholder variable `classifier_weights`
-        # In integration, ensure `outputs['final_classifier']` is available.
         classifier = outputs.get('final_classifier')
         if classifier is None:
-            # Fail-safe or raise error
-            print("classifier is None")
             return {'loss_sul': torch.tensor(0.0, device=obj_embs.device)}
 
-        pred_logits = classifier(subgraph_features)  # [N_subgraphs, num_classes + 1]
+        pred_logits = classifier(subgraph_features)
 
-        # Target is Unknown Class (index = self.unknown_idx)
-        # We create a target tensor
+        # Target: Unknown Class
         target_labels = torch.full((len(subgraph_features),), self.unknown_idx,
                                    dtype=torch.long, device=pred_logits.device)
 
-        # Standard Cross Entropy or Focal Loss
-        # Paper implies log likelihood, effectively CE
         loss_sul = F.cross_entropy(pred_logits, target_labels)
 
         return {'loss_sul': loss_sul}
@@ -525,48 +496,52 @@ class ASGSCriterion(nn.Module):
 
     def loss_labels(self, outputs, targets, indices, num_boxes, log=True):
         """
-        Classification Loss (Focal Loss) 계산
-        ASGS 수정: 배경(Background) 쿼리에 대해서는 Unknown Class의 Loss를 무시(Ignore)하여
-        loss_sul과의 충돌을 방지함.
+        Classification Loss (Sigmoid Focal Loss)
+        - 배경(Background)은 [0, 0, ..., 0] 벡터가 되도록 학습합니다.
+        - GT에는 Unknown 라벨이 없으므로, Unknown 클래스(마지막 인덱스)도
+          이 단계에서는 모두 0(Negative)으로 학습되어 억제됩니다.
         """
         assert 'pred_logits' in outputs
-        src_logits = outputs['pred_logits']
+        src_logits = outputs['pred_logits']  # Shape: [Batch, Query, num_classes]
 
-        def loss_labels(self, outputs, targets, indices, num_boxes, log=True):
-            src_logits = outputs['pred_logits']
-            idx = self._get_src_permutation_idx(indices)
-            target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
+        idx = self._get_src_permutation_idx(indices)
 
-            # Initialize with Background Class (typically self.num_classes + 1 in logic,
-            # but Focal Loss expects one-hot with last dim removed for background)
-            # Here we follow SOMA:
-            # valid classes: 0 to num_classes (including Unknown)
-            # target_classes filled with num_classes + 1 (Background)
+        target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
 
-            # Note: In ASGS_DETR, we defined num_classes output as known + 1.
-            # So known indices: 0..N-1. Unknown index: N.
-            # We assume dataset targets only contain known labels (0..N-1).
+        # [1] 배경 인덱스 설정
+        # src_logits의 채널 수가 4개(0~3)라면, 배경 인덱스는 4가 됩니다.
+        bg_class_ind = src_logits.shape[2]
 
-            target_classes = torch.full(src_logits.shape[:2], self.num_classes + 1,
-                                        dtype=torch.int64, device=src_logits.device)
-            target_classes[idx] = target_classes_o
+        # [2] 모든 타겟을 배경(4)으로 초기화
+        target_classes = torch.full(src_logits.shape[:2], bg_class_ind,
+                                    dtype=torch.int64, device=src_logits.device)
 
-            target_classes_onehot = torch.zeros([src_logits.shape[0], src_logits.shape[1], src_logits.shape[2] + 1],
-                                                dtype=src_logits.dtype, layout=src_logits.layout,
-                                                device=src_logits.device)
-            target_classes_onehot.scatter_(2, target_classes.unsqueeze(-1), 1)
-            target_classes_onehot = target_classes_onehot[:, :, :-1]  # Remove extra background slot
+        # [3] 매칭된 쿼리에만 실제 라벨(Known Class ID) 할당
+        # 주의: GT에는 Unknown(3)이 없으므로, 여기에는 0, 1, 2만 들어갑니다.
+        target_classes[idx] = target_classes_o
 
-            loss_ce = sigmoid_focal_loss(src_logits, target_classes_onehot, num_boxes, alpha=self.focal_alpha,
-                                         gamma=2) * \
-                      src_logits.shape[1]
-            losses = {'loss_ce': loss_ce}
-            # --- [추가해야 할 부분] ---
-            if log:
-                # 매칭된 쿼리에 대해서 분류 정확도를 계산하여 class_error로 기록
-                losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
-            # ------------------------
-            return losses
+        # [4] One-hot Encoding
+        # 배경(4)을 표현하기 위해 잠시 차원을 +1 하여 [Batch, Query, 5]로 만듭니다.
+        target_classes_onehot = torch.zeros([src_logits.shape[0], src_logits.shape[1], src_logits.shape[2] + 1],
+                                            dtype=src_logits.dtype, layout=src_logits.layout, device=src_logits.device)
+
+        target_classes_onehot.scatter_(2, target_classes.unsqueeze(-1), 1)
+
+        # [5] 마지막 차원(배경 인덱스) 제거
+        # 결과적으로 배경이었던 쿼리는 [0, 0, 0, 0]이 됩니다.
+        target_classes_onehot = target_classes_onehot[:, :, :-1]
+
+        # [6] Focal Loss 계산
+        # 기존 Baseline에 있던 unk_prob 관련 로직은 모두 삭제했습니다.
+        loss_ce = sigmoid_focal_loss(src_logits, target_classes_onehot, num_boxes, alpha=self.focal_alpha, gamma=2) * \
+                  src_logits.shape[1]
+
+        losses = {'loss_ce': loss_ce}
+
+        if log:
+            losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
+
+        return losses
 
     def loss_boxes(self, outputs, targets, indices, num_boxes):
         idx = self._get_src_permutation_idx(indices)
@@ -632,12 +607,12 @@ def build(cfg):
 
     # ASGS Configuration
     asgs_cfg = {
-        'K_boundary': 5,
-        'M_knn': 5,
-        'delta': 0.6,
-        'alpha': 0.9,
-        'tau': 0.1,
-        'WARM_UP': cfg.AOOD.OPEN_SET.WARM_UP  # [추가] Config에서 값(9)을 가져와 전달
+        'K_boundary': cfg.AOOD.ASGS.K,
+        'M_knn': cfg.AOOD.ASGS.M,
+        'delta': cfg.AOOD.ASGS.DELTA,
+        'alpha': cfg.AOOD.ASGS.ALPHA,
+        'tau': cfg.AOOD.ASGS.TAU,
+        'WARM_UP': cfg.AOOD.ASGS.WARM_UP  # [추가] Config에서 값(9)을 가져와 전달
     }
 
     model = ASGS_DETR(
@@ -659,8 +634,8 @@ def build(cfg):
         'loss_ce': cfg.LOSS.CLS_LOSS_COEF,
         'loss_bbox': cfg.LOSS.BBOX_LOSS_COEF,
         'loss_giou': cfg.LOSS.GIOU_LOSS_COEF,
-        'loss_sul': 1.0,  # Lambda 1 in paper
-        'loss_cec': 0.1  # Lambda 2 in paper
+        'loss_sul': cfg.AOOD.ASGS.LAMBDA_SUL,  # Lambda 1 in paper
+        'loss_cec': cfg.AOOD.ASGS.LAMBDA_CEC,  # Lambda 2 in paper
     }
 
     if cfg.LOSS.AUX_LOSS:

@@ -2,7 +2,7 @@
 
 #SBATCH --job-name=asgs_het_sem_3
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:1
 #SBATCH -p batch
 #SBATCH -w vgi1
 #SBATCH --cpus-per-gpu=12
@@ -23,9 +23,9 @@ cd "/data/changsik/SOMA_gemini/" || exit 1
 
 # --- [설정] ---
 # 사용할 Config 파일 경로
-CONFIG_FILE="configs/soma_aood_city_to_foggy_r50.yaml"
+CONFIG_FILE="configs/soma_aood_city_to_foggy_r50_main_2.yaml"
 # 결과 저장 경로 (Task 별로 분리)
-OUTPUT_DIR="./outputs/table1/GPU_2_TH_0.5_CEC_0.1_ALPHA_0.9_WARM_UP_9"
+OUTPUT_DIR="./outputs/table1/GPU_1_TH_0.5_CEC_0.1_ALPHA_0.9_WARM_UP_20"
 # 체크포인트 경로
 CHECKPOINT="${OUTPUT_DIR}/checkpoint.pth"
 
@@ -48,7 +48,7 @@ echo "========================================================"
 # 2. 학습 실행 (torchrun 사용)
 # [수정됨] --output_dir 삭제하고 --opts 내부로 이동
 
-torchrun --nproc_per_node=2 \
+torchrun --nproc_per_node=1 \
     --master_addr=${MASTER_ADDR} \
     --master_port=${MASTER_PORT} \
     main.py \

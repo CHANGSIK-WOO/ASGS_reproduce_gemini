@@ -8,7 +8,7 @@ AOOD:
     DELTA: 0.5
     ALPHA: 0.9
     TAU: 0.1
-    WARM_UP: 9
+    WARM_UP: 20
     LAMBDA_SUL: 1.0
     LAMBDA_CEC: 0.1
   # novel-class

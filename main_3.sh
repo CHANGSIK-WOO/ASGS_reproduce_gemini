@@ -25,7 +25,7 @@ cd "/data/changsik/SOMA_gemini/" || exit 1
 # 사용할 Config 파일 경로
 CONFIG_FILE="configs/soma_aood_city_to_foggy_r50.yaml"
 # 결과 저장 경로 (Task 별로 분리)
-OUTPUT_DIR="./outputs/table1/GPU_2_TH_0.5_CEC_0.1_ALPHA_0.9_WARM_UP_9"
+OUTPUT_DIR="./outputs/table1/GPU_2_TH_0.5_CEC_0.1_ALPHA_0.9_WARM_UP_9_DIST_PROTOTYPES"
 # 체크포인트 경로
 CHECKPOINT="${OUTPUT_DIR}/checkpoint.pth"
 
