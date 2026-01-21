@@ -281,7 +281,7 @@ class ASGSCriterion(nn.Module):
 
     @torch.no_grad()
     def update_prototypes(self, outputs, targets, indices):
-        """ Update Class Prototypes using EMA (Eq 1) """
+        """ Update Class Prototypes using EMA (Eq 1) with DDP Sync """
         cls_means = outputs['cls_means']
         obj_embs = outputs['object_embedding']
 
@@ -290,15 +290,29 @@ class ASGSCriterion(nn.Module):
         target_labels = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
 
         for k in range(self.num_known_classes):
+            # 1. 현재 GPU에서 해당 클래스(k)의 Feature 찾기
             k_embs = matched_embs[target_labels == k]
+
+            # 2. 합계(Sum)와 개수(Count) 계산
             if k_embs.numel() > 0:
-                k_mean = k_embs.mean(dim=0)
+                local_sum = k_embs.sum(dim=0)
+                local_count = torch.tensor(float(k_embs.size(0)), device=k_embs.device)
+            else:
+                local_sum = torch.zeros_like(cls_means[k])
+                local_count = torch.tensor(0.0, device=k_embs.device)
 
-                # [수정] k_mean을 먼저 정규화하여 크기를 1로 맞춤
-                # 이제 "방향(Direction)"끼리의 합성이 되어 alpha(0.9) 비율이 정확히 지켜짐
-                k_mean = F.normalize(k_mean, p=2, dim=0)
+            # 3. [DDP 핵심] 모든 GPU의 값을 모음 (All-Reduce)
+            if is_dist_avail_and_initialized():
+                dist.all_reduce(local_sum)  # 모든 GPU의 Feature 합
+                dist.all_reduce(local_count)  # 모든 GPU의 샘플 개수 합
 
-                updated_proto = self.alpha_proto * cls_means[k] + (1 - self.alpha_proto) * k_mean
+            # 4. 전역 평균(Global Mean) 계산 및 업데이트
+            if local_count > 0:
+                global_mean = local_sum / local_count
+                global_mean = F.normalize(global_mean, p=2, dim=0)  # 정규화
+
+                # EMA 업데이트
+                updated_proto = self.alpha_proto * cls_means[k] + (1 - self.alpha_proto) * global_mean
                 updated_proto = F.normalize(updated_proto, p=2, dim=0)
                 cls_means[k] = updated_proto.detach()
 

@@ -402,13 +402,26 @@ class ASGSCriterion(nn.Module):
         if classifier is None:
             return {'loss_sul': torch.tensor(0.0, device=obj_embs.device)}
 
+        # pred_logits = classifier(subgraph_features)
+        #
+        # # Target: Unknown Class
+        # target_labels = torch.full((len(subgraph_features),), self.unknown_idx,
+        #                            dtype=torch.long, device=pred_logits.device)
+        #
+        # loss_sul = F.cross_entropy(pred_logits, target_labels)
+        #
+        # return {'loss_sul': loss_sul}
+
         pred_logits = classifier(subgraph_features)
-
-        # Target: Unknown Class
-        target_labels = torch.full((len(subgraph_features),), self.unknown_idx,
-                                   dtype=torch.long, device=pred_logits.device)
-
-        loss_sul = F.cross_entropy(pred_logits, target_labels)
+        # NOTE:
+        # Baseline classification uses sigmoid focal loss (multi-label style) :contentReference[oaicite:2]{index=2}
+        # To keep objectives consistent, SUL is also implemented with sigmoid focal loss:
+        # target is one-hot where only unknown index is 1.
+        target_onehot = torch.zeros((pred_logits.shape[0], pred_logits.shape[1]), dtype=pred_logits.dtype, device=pred_logits.device)
+        target_onehot[:, self.unknown_idx] = 1.0
+        # normalize by number of subgraphs (num_boxes 역할)
+        num_subg = max(int(pred_logits.shape[0]), 1)
+        loss_sul = sigmoid_focal_loss(pred_logits, target_onehot, num_subg, alpha = self.focal_alpha, gamma = 2)
 
         return {'loss_sul': loss_sul}
 
@@ -422,8 +435,19 @@ class ASGSCriterion(nn.Module):
 
         # [수정 1] 수치 안정을 위해 모든 Embedding을 미리 정규화(Normalize) 합니다. (Cosine Similarity용)
         # prototypes는 update_prototypes에서 이미 정규화되어 있지만, 안전을 위해 여기서도 확인 가능
-        matched_embs = F.normalize(matched_embs, p=2, dim=1)
-        prototypes = F.normalize(prototypes, p=2, dim=1)
+        # matched_embs = F.normalize(matched_embs, p=2, dim=1)
+        # prototypes = F.normalize(prototypes, p=2, dim=1)
+        def _safe_l2_normalize(x, dim=1, eps=1e-6):
+            return x / (x.norm(p=2, dim=dim, keepdim=True).clamp_min(eps))
+
+        # normalize embeddings for cosine sim
+        matched_embs = _safe_l2_normalize(matched_embs, dim=1, eps=1e-6)
+
+        # IMPORTANT:
+        # cls_means buffer starts from zeros :contentReference[oaicite:3]{index=3} and only known-class prototypes are updated :contentReference[oaicite:4]{index=4}.
+        # Normalizing a zero vector can introduce NaNs depending on torch version.
+        # So we normalize safely and also restrict to known prototypes.
+        prototypes = _safe_l2_normalize(prototypes, dim=1, eps=1e-6)
 
         loss_cec = 0.0
         count = 0
@@ -446,8 +470,11 @@ class ASGSCriterion(nn.Module):
             # Negative Keys:
             # 1. Prototypes of other classes
             # 2. Matched embeddings of other classes
-            neg_proto_mask = torch.arange(self.num_classes, device=prototypes.device) != k
-            negative_protos = prototypes[neg_proto_mask]
+
+            # neg_proto_mask = torch.arange(self.num_classes, device=prototypes.device) != k
+            # negative_protos = prototypes[neg_proto_mask]
+            neg_proto_mask = torch.arange(self.num_known_classes, device=prototypes.device) != k
+            negative_protos = prototypes[:self.num_known_classes][neg_proto_mask]
 
             neg_emb_mask = ~pos_mask
             negative_embs = matched_embs[neg_emb_mask]
@@ -474,12 +501,27 @@ class ASGSCriterion(nn.Module):
             # 여기서는 간단히 정규화만으로도 NaN은 해결되므로 기존 수식 유지하되,
             # 분모 계산 시 max trick 등을 쓰는 것이 안전하지만, 코사인 유사도 범위 내에서는 아래도 괜찮습니다.
 
-            exp_neg_sum = torch.sum(torch.exp(sim_neg))
+            # exp_neg_sum = torch.sum(torch.exp(sim_neg))
+            #
+            # # 분모에 아주 작은 epsilon을 더해 0이 되는 것을 방지
+            # denominator = torch.exp(sim_pos) + exp_neg_sum + 1e-8
+            #
+            # loss_k = -torch.log(torch.exp(sim_pos) / denominator)
+            # Stable InfoNCE with logsumexp:
+            # loss_i = -sim_pos_i + logsumexp([sim_pos_i, sim_neg_1..N])
+            # Vectorized over positives.
+            if sim_neg.numel() > 0:
+                sim_neg_expand = sim_neg.unsqueeze(0).expand(sim_pos.size(0), -1)  # [N_pos, N_neg]
+                logits_all = torch.cat([sim_pos.unsqueeze(1), sim_neg_expand], dim=1)  # [N_pos, 1+N_neg]
+            else:
+                logits_all = sim_pos.unsqueeze(1)  # [N_pos, 1]
+            loss_k = -sim_pos + torch.logsumexp(logits_all, dim=1)
 
-            # 분모에 아주 작은 epsilon을 더해 0이 되는 것을 방지
-            denominator = torch.exp(sim_pos) + exp_neg_sum + 1e-8
+            loss_cec += loss_k.sum()
+            count += len(loss_k)
 
-            loss_k = -torch.log(torch.exp(sim_pos) / denominator)
+
+
 
             loss_cec += loss_k.sum()
             count += len(loss_k)

@@ -9,7 +9,7 @@ AOOD:
     ALPHA: 0.9
     TAU: 0.1
     WARM_UP: 9
-    LAMBDA_SUL: 1.0
+    LAMBDA_SUL: 0.35
     LAMBDA_CEC: 0.1
   # novel-class
   OPEN_SET:
