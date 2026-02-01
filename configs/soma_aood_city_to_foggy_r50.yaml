@@ -5,11 +5,11 @@ AOOD:
     ENABLED: True  # 여기서 True로 덮어씌워야 ASGS 모델이 작동합니다.
     K: 5
     M: 5
-    DELTA: 0.5
+    DELTA: 0.6
     ALPHA: 0.9
     TAU: 0.1
     WARM_UP: 9
-    LAMBDA_SUL: 0.35
+    LAMBDA_SUL: 1.0
     LAMBDA_CEC: 0.1
   # novel-class
   OPEN_SET:
@@ -31,7 +31,7 @@ DATASET:
   COCO_PATH: '/data/datasets'
   # [중요] Unknown Class 개수 조절 (SOMA 로직 유지)
   # 3: Unknown 3개 평가 / 4: Unknown 4개 평가 / 5: Unknown 5개 평가
-  AOOD_TASK: 3
+  AOOD_TASK: 4
   DATASET_FILE: cityscapes_to_foggy_cityscapes
   # [중요] NUM_CLASSES 설정 (Base 개수 + 1)
   # SOMA Setting 1의 Base Class는 3개이므로, 3 + 1 = 4로 설정
